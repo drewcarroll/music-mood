@@ -27,14 +27,27 @@ export interface MusicGenerationCallbacks {
  * SDK's config shape is an infrastructure concern.
  */
 export interface MusicGenerationConfig {
-  /** Beats per minute. */
+  /**
+   * Beats per minute. Pin this for the whole performance — changing bpm
+   * mid-stream forces the model to reset_context(), an audible seam.
+   */
   bpm?: number;
-  /** How strictly the model adheres to the prompts (higher = stricter). */
+  /**
+   * How strictly the model adheres to the prompts. Higher follows prompts more
+   * closely but makes transitions more ABRUPT; keep it low (~2–3) so weighted
+   * blends morph gently. Set once at connect.
+   */
   guidance?: number;
-  /** Density of musical events (0..1). */
+  /** Density of musical events (0..1). Used as a live secondary morph control. */
   density?: number;
-  /** Tonal brightness (0..1). */
+  /** Tonal brightness (0..1). Used as a live secondary morph control. */
   brightness?: number;
+  /**
+   * Musical scale (key/mode), e.g. "C_MAJOR_A_MINOR". A plain string here; the
+   * infrastructure adapter maps it onto the SDK's Scale enum. Like bpm, pin it
+   * for the performance — changing scale mid-stream also resets context.
+   */
+  scale?: string;
 }
 
 /**

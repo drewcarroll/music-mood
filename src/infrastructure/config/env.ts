@@ -41,11 +41,16 @@ export function loadConfig(): AppConfig {
       text: (env.VITE_LYRIA_INITIAL_PROMPT as string | undefined) ?? 'lush ambient soundscape',
       weight: num(env.VITE_LYRIA_INITIAL_PROMPT_WEIGHT as string | undefined, 1.0),
     },
+    // Seeded once on connect. bpm, scale and guidance are PINNED for the whole
+    // performance: bpm/scale changes force a reset_context() seam, and a low
+    // guidance (~2.5) keeps weighted-prompt blends gentle rather than abrupt.
+    // density/brightness are only starting points — steering morphs them live.
     generationConfig: {
       bpm: num(env.VITE_LYRIA_BPM as string | undefined, 110),
       guidance: num(env.VITE_LYRIA_GUIDANCE as string | undefined, 2.5),
       density: num(env.VITE_LYRIA_DENSITY as string | undefined, 0.6),
       brightness: num(env.VITE_LYRIA_BRIGHTNESS as string | undefined, 0.5),
+      scale: (env.VITE_LYRIA_SCALE as string | undefined) ?? 'C_MAJOR_A_MINOR',
     },
   };
 }

@@ -1,5 +1,5 @@
 import { MusicPrompt } from '../value-objects/MusicPrompt';
-import { WeightedEmotion } from '../value-objects/EmotionDescriptor';
+import { WeightedEmotion, EmotionMorph } from '../value-objects/EmotionDescriptor';
 
 /**
  * Minimum weight an emotion must carry to be sent to the model. Lyria rejects a
@@ -27,5 +27,30 @@ export class EmotionMixer {
     return emotions
       .filter((emotion) => emotion.current > MIN_AUDIBLE_WEIGHT)
       .map((emotion) => MusicPrompt.create(emotion.keywords.join(', '), emotion.current));
+  }
+
+  /**
+   * Blend the active emotions into the SECONDARY morph controls
+   * (density + brightness) that ride alongside the prompt weights.
+   *
+   * Unlike the prompt weights — which are relative magnitudes sent as-is — these
+   * are a true blend ratio in [0, 1], so the per-emotion textures are averaged
+   * weighted by each emotion's current weight. As the sliders move, density and
+   * brightness drift smoothly between the active emotions' textures, which (with
+   * low guidance) is what keeps transitions gentle rather than abrupt.
+   *
+   * Returns `null` when no emotion is audible: the caller then leaves the live
+   * density/brightness untouched rather than snapping the stream to a default.
+   * Note that bpm and scale are intentionally never derived here — they stay
+   * pinned for the whole performance to avoid reset_context() seams.
+   */
+  toMorph(emotions: readonly WeightedEmotion[]): EmotionMorph | null {
+    const active = emotions.filter((emotion) => emotion.current > MIN_AUDIBLE_WEIGHT);
+    const totalWeight = active.reduce((sum, emotion) => sum + emotion.current, 0);
+    if (totalWeight === 0) return null;
+
+    const density = active.reduce((s, e) => s + e.morph.density * e.current, 0) / totalWeight;
+    const brightness = active.reduce((s, e) => s + e.morph.brightness * e.current, 0) / totalWeight;
+    return { density, brightness };
   }
 }

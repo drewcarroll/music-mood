@@ -45,3 +45,33 @@ describe('EmotionMixer', () => {
     expect(prompts.map((p) => p.weight)).toEqual([2, 2]);
   });
 });
+
+describe('EmotionMixer.toMorph', () => {
+  it('returns a soloed emotion’s own density/brightness', () => {
+    const morph = mixer.toMorph([WeightedEmotion.create('sad', 1, 1)]);
+    expect(morph).toEqual(EMOTION_DESCRIPTORS.sad.morph);
+  });
+
+  it('weight-blends density/brightness across active emotions (a true 0..1 ratio)', () => {
+    // happy {d:0.55,b:0.7} at 1.0 + a touch of sad {d:0.3,b:0.25} at 0.5 → bittersweet.
+    const morph = mixer.toMorph([
+      WeightedEmotion.create('happy', 1, 1),
+      WeightedEmotion.create('sad', 0.5, 0.5),
+    ]);
+    // density = (0.55*1 + 0.3*0.5) / 1.5 ; brightness = (0.7*1 + 0.25*0.5) / 1.5
+    expect(morph?.density).toBeCloseTo(0.4667, 4);
+    expect(morph?.brightness).toBeCloseTo(0.55, 4);
+  });
+
+  it('ignores emotions at/near zero, matching the prompt threshold', () => {
+    const morph = mixer.toMorph([
+      WeightedEmotion.create('hype', 1, 1),
+      WeightedEmotion.create('calm', MIN_AUDIBLE_WEIGHT, MIN_AUDIBLE_WEIGHT), // dropped
+    ]);
+    expect(morph).toEqual(EMOTION_DESCRIPTORS.hype.morph);
+  });
+
+  it('returns null when nothing is audible so the live texture is left untouched', () => {
+    expect(mixer.toMorph(createEmotionSet(0))).toBeNull();
+  });
+});

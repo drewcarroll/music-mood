@@ -1,4 +1,10 @@
-import { GoogleGenAI, type LiveMusicSession, type LiveMusicServerMessage } from '@google/genai';
+import {
+  GoogleGenAI,
+  Scale,
+  type LiveMusicSession,
+  type LiveMusicServerMessage,
+  type LiveMusicGenerationConfig,
+} from '@google/genai';
 import { MusicPrompt } from '@domain/value-objects/MusicPrompt';
 import { DomainError } from '@domain/errors/DomainError';
 import {
@@ -106,11 +112,29 @@ export class LyriaRealtimeMusicGenerator implements MusicGenerationPort {
   async setGenerationConfig(config: MusicGenerationConfig): Promise<void> {
     const session = this.ensureSession();
     try {
-      await session.setMusicGenerationConfig({ musicGenerationConfig: config });
+      await session.setMusicGenerationConfig({
+        musicGenerationConfig: this.toSdkConfig(config),
+      });
       console.info('[Lyria] generation config applied:', config);
     } catch (err) {
       throw this.toDomainError(err);
     }
+  }
+
+  /**
+   * Map our plain-number config onto the SDK shape. Only the fields the caller
+   * actually set are forwarded, so a steering call carrying just density +
+   * brightness never resends bpm/scale (which would reset the model's context).
+   * `scale` arrives as a plain string and is mapped onto the SDK's Scale enum.
+   */
+  private toSdkConfig(config: MusicGenerationConfig): LiveMusicGenerationConfig {
+    const sdkConfig: LiveMusicGenerationConfig = {};
+    if (config.bpm !== undefined) sdkConfig.bpm = config.bpm;
+    if (config.guidance !== undefined) sdkConfig.guidance = config.guidance;
+    if (config.density !== undefined) sdkConfig.density = config.density;
+    if (config.brightness !== undefined) sdkConfig.brightness = config.brightness;
+    if (config.scale !== undefined) sdkConfig.scale = config.scale as Scale;
+    return sdkConfig;
   }
 
   async play(): Promise<void> {

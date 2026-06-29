@@ -17,14 +17,29 @@ export const MIN_EMOTION_WEIGHT = 0;
 export const MAX_EMOTION_WEIGHT = 2;
 
 /**
+ * The texture an emotion contributes to the SECONDARY morph controls.
+ * `density` (how busy the arrangement is) and `brightness` (tonal lightness)
+ * are both in [0, 1] — the same range Lyria's generation config expects. These
+ * are blended by slider weight to morph the stream gently alongside the prompt
+ * weights; bpm and scale are deliberately NOT part of this (changing them would
+ * force a reset_context() seam mid-performance).
+ */
+export interface EmotionMorph {
+  readonly density: number;
+  readonly brightness: number;
+}
+
+/**
  * A descriptor pairs an emoji emotion with the model-friendly keyword set used
- * to steer the generative music model. The keyword sets are fixed, curated
+ * to steer the generative music model, plus the texture (density/brightness)
+ * it lends to the secondary morph controls. The keyword sets are fixed, curated
  * vocabulary — kept verbatim so prompts stay reproducible.
  */
 export interface EmotionDescriptor {
   readonly name: EmotionName;
   readonly emoji: string;
   readonly keywords: readonly string[];
+  readonly morph: EmotionMorph;
 }
 
 /**
@@ -60,26 +75,36 @@ export const EMOTION_DESCRIPTORS: Record<EmotionName, EmotionDescriptor> = {
     name: 'happy',
     emoji: '😊',
     keywords: ['joyful', 'bright', 'major key', 'warm acoustic guitar', 'upbeat pop'],
+    // Bright and moderately busy.
+    morph: { density: 0.55, brightness: 0.7 },
   },
   sad: {
     name: 'sad',
     emoji: '😢',
     keywords: ['melancholy', 'mournful', 'minor key', 'tender solo piano', 'slow and sparse'],
+    // Sparse and dim — the texture of grief.
+    morph: { density: 0.3, brightness: 0.25 },
   },
   angry: {
     name: 'angry',
     emoji: '😠',
     keywords: ['aggressive', 'heavy distorted guitars', 'pounding drums', 'dark', 'menacing'],
+    // Dense and dark.
+    morph: { density: 0.85, brightness: 0.4 },
   },
   calm: {
     name: 'calm',
     emoji: '😌',
     keywords: ['serene', 'peaceful', 'ambient', 'soft warm synth pads', 'spacious'],
+    // Very sparse, neutral brightness — restful space.
+    morph: { density: 0.2, brightness: 0.5 },
   },
   hype: {
     name: 'hype',
     emoji: '🔥',
     keywords: ['euphoric', 'driving electronic beat', 'punchy bass', 'fast tempo', 'festival energy'],
+    // Maximally busy and bright.
+    morph: { density: 0.9, brightness: 0.85 },
   },
 };
 
@@ -132,6 +157,10 @@ export class WeightedEmotion {
 
   get keywords(): readonly string[] {
     return this.descriptor.keywords;
+  }
+
+  get morph(): EmotionMorph {
+    return this.descriptor.morph;
   }
 
   /** Returns a new WeightedEmotion steered toward a new target weight. */
