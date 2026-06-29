@@ -90,6 +90,33 @@ describe('WeightedEmotion', () => {
     expect(Object.isFrozen(calm)).toBe(true);
   });
 
+  it('eases current toward target by the smoothing factor', () => {
+    const happy = WeightedEmotion.create('happy', 2, 0);
+    const stepped = happy.easedToward(0.25);
+    // current += (2 - 0) * 0.25 = 0.5
+    expect(stepped.current).toBe(0.5);
+    expect(stepped.target).toBe(2);
+    expect(stepped.settled).toBe(false);
+  });
+
+  it('eases downward as well as upward', () => {
+    const calm = WeightedEmotion.create('calm', 0, 2);
+    // current += (0 - 2) * 0.5 = -1 → 1
+    expect(calm.easedToward(0.5).current).toBe(1);
+  });
+
+  it('snaps to target and reports settled once within the epsilon', () => {
+    const hype = WeightedEmotion.create('hype', 1, 0.999); // gap 0.001 < epsilon
+    const stepped = hype.easedToward(0.15);
+    expect(stepped.current).toBe(1);
+    expect(stepped.settled).toBe(true);
+  });
+
+  it('is already settled when current equals target', () => {
+    expect(WeightedEmotion.create('sad', 0.7, 0.7).settled).toBe(true);
+    expect(WeightedEmotion.create('sad', 0.7, 0).settled).toBe(false);
+  });
+
   it('builds an un-normalized set of all five emotions', () => {
     const set = createEmotionSet();
     expect(set).toHaveLength(5);

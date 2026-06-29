@@ -1,27 +1,25 @@
 import { EmotionMixer } from '@domain/services/EmotionMixer';
-import { WeightedEmotion } from '@domain/value-objects/EmotionDescriptor';
+import { DEFAULT_EASE_FACTOR, WeightedEmotion } from '@domain/value-objects/EmotionDescriptor';
 import { MusicGenerationPort } from '../ports/MusicGenerationPort';
-import { EmotionMixResultDto, SetEmotionMixInputDto } from '../dtos/EmotionMixDto';
+import { AdvanceEmotionMixInputDto, EmotionMixResultDto } from '../dtos/EmotionMixDto';
 
 /**
- * Use Case: apply the five-emoji weight mix to the live stream.
+ * Use Case: advance the five-emoji mix by ONE easing tick and apply it.
  *
- * Builds the weighted prompts from the current slider weights (via the
- * EmotionMixer domain service, which drops any emotion at/near zero) and
- * replaces the model's active prompts in a single setWeightedPrompts call.
+ * The render loop calls this every ~100–150 ms. Each emotion's `current` weight
+ * is eased one step toward its slider `target` (via WeightedEmotion.easedToward),
+ * then the full prompt set is rebuilt and sent in a single setWeightedPrompts
+ * call — the continuity mechanism that turns slider moves into gradual morphs
+ * rather than snaps. Emotions at/near zero are dropped by the mixer.
  *
- * Steering morphs the stream along TWO axes that move together:
- *  - prompt weights (primary) — the harmonic / instrumental content;
- *  - density + brightness (secondary) — the texture, pushed via
- *    setGenerationConfig with ONLY those two fields set.
+ * Steering morphs along two axes that move together every tick:
+ *  - prompt weights (primary) — harmonic / instrumental content;
+ *  - density + brightness (secondary) — texture, via setGenerationConfig with
+ *    ONLY those two fields, so bpm/scale stay pinned (no reset_context() seam).
  *
- * bpm, scale and guidance are never sent from here: they are pinned at connect
- * for the whole performance, so steering can never trigger a reset_context()
- * seam. Combined with the low connect-time guidance (~2.5), this keeps
- * transitions gentle rather than abrupt.
- *
- * No easing yet: the slider position is applied directly as the emotion's
- * current weight, so the blend updates statically as sliders move.
+ * The use case is stateless: the loop owns the live weights and feeds the eased
+ * result back in next tick. `settled` lets the loop stop ticking once every
+ * weight has reached its target.
  */
 export class SteerEmotionMixUseCase {
   constructor(
@@ -29,11 +27,14 @@ export class SteerEmotionMixUseCase {
     private readonly mixer: EmotionMixer = new EmotionMixer(),
   ) {}
 
-  async execute(dto: SetEmotionMixInputDto): Promise<EmotionMixResultDto> {
-    // No easing: the slider value is both the target and the current weight.
-    const emotions = dto.weights.map((w) => WeightedEmotion.create(w.name, w.weight, w.weight));
-    const prompts = this.mixer.toPrompts(emotions);
-    const morph = this.mixer.toMorph(emotions);
+  async execute(dto: AdvanceEmotionMixInputDto): Promise<EmotionMixResultDto> {
+    const factor = dto.smoothing ?? DEFAULT_EASE_FACTOR;
+    const eased = dto.weights.map((w) =>
+      WeightedEmotion.create(w.name, w.target, w.current).easedToward(factor),
+    );
+
+    const prompts = this.mixer.toPrompts(eased);
+    const morph = this.mixer.toMorph(eased);
 
     // Never send an empty array — the model needs at least one prompt. When every
     // slider sits at/near zero we leave the current blend (and texture) playing
@@ -53,6 +54,8 @@ export class SteerEmotionMixUseCase {
     return {
       prompts: prompts.map((p) => ({ text: p.text, weight: p.weight })),
       morph: morph ?? undefined,
+      weights: eased.map((e) => ({ name: e.name, target: e.target, current: e.current })),
+      settled: eased.every((e) => e.settled),
     };
   }
 }

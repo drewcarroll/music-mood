@@ -1,10 +1,22 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { MusicSessionDto } from '@application/dtos/MusicSessionDto';
-import { WeightedEmotion } from '@domain/value-objects/EmotionDescriptor';
+import { EMOTION_NAMES, WeightedEmotion } from '@domain/value-objects/EmotionDescriptor';
 import { useMusicSessionController } from '@interfaces/context/UseCasesContext';
 
-/** Coalesce rapid slider drags into one setWeightedPrompts call per ~120ms. */
-const EMOTION_DEBOUNCE_MS = 120;
+/**
+ * Cadence of the easing render loop. Every tick the live `current` weights are
+ * eased one step toward the slider `target`s and the whole prompt set is pushed,
+ * so slider moves morph gradually rather than snapping. 120ms sits in the
+ * 100–150ms sweet spot — smooth to the ear without hammering the model.
+ */
+const EASE_TICK_MS = 120;
+
+/** Per-emotion live weight: the slider `target` and its last eased `current`. */
+interface LiveWeight {
+  name: string;
+  target: number;
+  current: number;
+}
 
 interface MusicMoodState {
   session: MusicSessionDto | null;
@@ -73,31 +85,54 @@ export function useMusicMood() {
     return apply(() => controller.stop(id));
   }, [apply, controller, state.session?.id]);
 
-  // Debounced emoji-mix steering. Only meaningful once a stream is live, so it
-  // no-ops without an active session (and skips the board's initial mount fire).
+  // Emoji-mix easing render loop. The board reports slider positions via
+  // setEmotionMix; we only record them as `target`s here. A ~120ms tick eases
+  // each `current` toward its `target` and pushes the full prompt set, so moves
+  // morph gradually. Only meaningful once a stream is live.
   const hasSession = Boolean(state.session);
-  const emotionTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const setEmotionMix = useCallback(
-    (emotions: readonly WeightedEmotion[]) => {
-      if (!hasSession) return;
-      const weights = emotions.map((e) => ({ name: e.name, weight: e.target }));
-      if (emotionTimer.current) clearTimeout(emotionTimer.current);
-      emotionTimer.current = setTimeout(() => {
-        void controller.setEmotionMix(weights).then((result) => {
-          if (!result.ok) setState((s) => ({ ...s, error: result.error }));
+  // Live weights live in a ref so the high-frequency tick never re-renders.
+  const mixRef = useRef<LiveWeight[]>(
+    EMOTION_NAMES.map((name) => ({ name, target: 0, current: 0 })),
+  );
+  // The loop only pushes while there's easing left to do; a slider move re-arms
+  // it, and a settled tick disarms it — so a resting mix isn't re-sent forever.
+  const easingRef = useRef(false);
+
+  const setEmotionMix = useCallback((emotions: readonly WeightedEmotion[]) => {
+    for (const e of emotions) {
+      const slot = mixRef.current.find((m) => m.name === e.name);
+      if (slot) slot.target = e.target;
+    }
+    easingRef.current = true;
+  }, []);
+
+  useEffect(() => {
+    if (!hasSession) return;
+    let inFlight = false;
+    const id = setInterval(() => {
+      // Skip while a push is outstanding, and idle once the mix has settled.
+      if (!easingRef.current || inFlight) return;
+      inFlight = true;
+      void controller
+        .advanceEmotionMix(mixRef.current.map((m) => ({ ...m })))
+        .then((result) => {
+          if (!result.ok) {
+            setState((s) => ({ ...s, error: result.error }));
+            return;
+          }
+          for (const w of result.data.weights) {
+            const slot = mixRef.current.find((m) => m.name === w.name);
+            if (slot) slot.current = w.current;
+          }
+          if (result.data.settled) easingRef.current = false;
+        })
+        .finally(() => {
+          inFlight = false;
         });
-      }, EMOTION_DEBOUNCE_MS);
-    },
-    [controller, hasSession],
-  );
-
-  useEffect(
-    () => () => {
-      if (emotionTimer.current) clearTimeout(emotionTimer.current);
-    },
-    [],
-  );
+    }, EASE_TICK_MS);
+    return () => clearInterval(id);
+  }, [hasSession, controller]);
 
   return { ...state, start, steer, play, pause, stop, setEmotionMix };
 }

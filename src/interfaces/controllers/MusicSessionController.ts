@@ -34,16 +34,22 @@ export class MusicSessionController {
   }
 
   /**
-   * Apply the five-emoji weight mix to the live stream. Validates input shape
-   * only (finite weights); the zero-weight rule lives in the domain mixer.
+   * Advance the five-emoji mix by one easing tick and apply it to the live
+   * stream. Called repeatedly by the render loop. Validates input shape only
+   * (finite target/current); the easing and zero-weight rules live in the
+   * domain. `smoothing` is optional — the domain default is used when omitted.
    */
-  async setEmotionMix(
-    weights: Array<{ name: string; weight: number }>,
+  async advanceEmotionMix(
+    weights: Array<{ name: string; target: number; current: number }>,
+    smoothing?: number,
   ): Promise<Result<EmotionMixResultDto>> {
     const sanitized = weights.filter(
-      (w) => typeof w.name === 'string' && Number.isFinite(w.weight),
+      (w) =>
+        typeof w.name === 'string' &&
+        Number.isFinite(w.target) &&
+        Number.isFinite(w.current),
     );
-    return this.run(() => this.useCases.steerEmotionMix.execute({ weights: sanitized }));
+    return this.run(() => this.useCases.steerEmotionMix.execute({ weights: sanitized, smoothing }));
   }
 
   async play(sessionId: string): Promise<Result<MusicSessionDto>> {

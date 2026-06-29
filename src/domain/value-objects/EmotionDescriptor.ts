@@ -17,6 +17,20 @@ export const MIN_EMOTION_WEIGHT = 0;
 export const MAX_EMOTION_WEIGHT = 2;
 
 /**
+ * Default smoothing factor applied on each easing tick:
+ * `current += (target - current) * factor`. ~0.15 reaches a new target in a
+ * gentle ~1–2 s at a 100–150 ms tick, so slider moves morph rather than snap.
+ */
+export const DEFAULT_EASE_FACTOR = 0.15;
+
+/**
+ * Once the remaining gap between current and target falls below this, the
+ * current snaps exactly to target. Without it the exponential ease would crawl
+ * toward the target forever and never report itself settled.
+ */
+export const EASE_EPSILON = 0.005;
+
+/**
  * The texture an emotion contributes to the SECONDARY morph controls.
  * `density` (how busy the arrangement is) and `brightness` (tonal lightness)
  * are both in [0, 1] — the same range Lyria's generation config expects. These
@@ -179,6 +193,25 @@ export class WeightedEmotion {
       this.target,
       WeightedEmotion.assertWeight(current, 'current'),
     );
+  }
+
+  /**
+   * Returns a new WeightedEmotion with `current` eased one step toward `target`:
+   * `current += (target - current) * factor`. When the remaining gap drops below
+   * EASE_EPSILON the current snaps exactly to target, so the ease terminates
+   * (and `settled` becomes true) instead of crawling asymptotically.
+   */
+  easedToward(factor: number = DEFAULT_EASE_FACTOR): WeightedEmotion {
+    const delta = this.target - this.current;
+    if (Math.abs(delta) <= EASE_EPSILON) {
+      return this.settled ? this : this.withCurrent(this.target);
+    }
+    return this.withCurrent(this.current + delta * factor);
+  }
+
+  /** True once `current` has reached `target` — no further easing is needed. */
+  get settled(): boolean {
+    return this.current === this.target;
   }
 
   equals(other: WeightedEmotion): boolean {
