@@ -15,36 +15,39 @@ describe('EmotionDescriptor', () => {
 
   it('carries the exact curated keyword sets', () => {
     expect(EMOTION_DESCRIPTORS.happy.keywords).toEqual([
-      'uplifting',
+      'joyful',
       'bright',
       'major key',
       'warm acoustic guitar',
-      'lively tempo',
+      'upbeat pop',
     ]);
     expect(EMOTION_DESCRIPTORS.sad.keywords).toEqual([
       'melancholy',
-      'sparse',
+      'mournful',
       'minor key',
-      'slow',
-      'soft piano',
+      'tender solo piano',
+      'slow and sparse',
     ]);
     expect(EMOTION_DESCRIPTORS.angry.keywords).toEqual([
       'aggressive',
-      'distorted',
-      'driving drums',
+      'heavy distorted guitars',
+      'pounding drums',
       'dark',
+      'menacing',
     ]);
     expect(EMOTION_DESCRIPTORS.calm.keywords).toEqual([
+      'serene',
+      'peaceful',
       'ambient',
-      'gentle',
-      'airy synth pads',
-      'soft',
+      'soft warm synth pads',
+      'spacious',
     ]);
     expect(EMOTION_DESCRIPTORS.hype.keywords).toEqual([
-      'energetic',
-      'punchy beat',
-      'electronic',
-      'confident',
+      'euphoric',
+      'driving electronic beat',
+      'punchy bass',
+      'fast tempo',
+      'festival energy',
     ]);
   });
 

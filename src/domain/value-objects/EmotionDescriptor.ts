@@ -29,32 +29,57 @@ export interface EmotionDescriptor {
 
 /**
  * The canonical descriptor for each emotion, with its exact keyword set.
+ *
+ * The keyword sets are tuned so the five emotions are (1) clearly
+ * distinguishable when one slider is soloed and (2) blend into recognizable
+ * hybrids when sliders overlap. Each set is built from three deliberate parts:
+ *
+ *   - a leading MOOD word that fixes the emotional valence (joyful vs.
+ *     melancholy vs. menacing) — this is what keeps neighbours apart;
+ *   - a TONAL / ENERGY anchor (major vs. minor key, slow vs. fast) the model
+ *     interpolates between when two emotions are mixed;
+ *   - a signature INSTRUMENT / TEXTURE so blends layer instead of mush.
+ *
+ * The pairs that previously overlapped are now separated on purpose:
+ *   - sad vs. calm: sad is `mournful` + `minor key` (sorrow); calm is `serene`
+ *     + `peaceful` with no minor tonality (rest, not grief).
+ *   - angry vs. hype: angry is `dark` + `menacing` distorted guitars (negative);
+ *     hype is `euphoric` festival electronica (positive).
+ *   - happy vs. hype: happy is warm `acoustic` `upbeat pop`; hype is `driving
+ *     electronic` with `punchy bass` at a faster tempo.
+ *
+ * Common blends are intentional by construction, e.g. happy + a touch of sad =
+ * bittersweet: major/minor tonality becomes ambiguous while the acoustic
+ * guitar, solo piano and strings sit in one coherent ensemble.
+ *
+ * Sets are kept tight (≈5 terms) so no single emotion's joined prompt becomes a
+ * word-salad that drowns out the others in a mix.
  */
 export const EMOTION_DESCRIPTORS: Record<EmotionName, EmotionDescriptor> = {
   happy: {
     name: 'happy',
     emoji: '😊',
-    keywords: ['uplifting', 'bright', 'major key', 'warm acoustic guitar', 'lively tempo'],
+    keywords: ['joyful', 'bright', 'major key', 'warm acoustic guitar', 'upbeat pop'],
   },
   sad: {
     name: 'sad',
     emoji: '😢',
-    keywords: ['melancholy', 'sparse', 'minor key', 'slow', 'soft piano'],
+    keywords: ['melancholy', 'mournful', 'minor key', 'tender solo piano', 'slow and sparse'],
   },
   angry: {
     name: 'angry',
     emoji: '😠',
-    keywords: ['aggressive', 'distorted', 'driving drums', 'dark'],
+    keywords: ['aggressive', 'heavy distorted guitars', 'pounding drums', 'dark', 'menacing'],
   },
   calm: {
     name: 'calm',
     emoji: '😌',
-    keywords: ['ambient', 'gentle', 'airy synth pads', 'soft'],
+    keywords: ['serene', 'peaceful', 'ambient', 'soft warm synth pads', 'spacious'],
   },
   hype: {
     name: 'hype',
     emoji: '🔥',
-    keywords: ['energetic', 'punchy beat', 'electronic', 'confident'],
+    keywords: ['euphoric', 'driving electronic beat', 'punchy bass', 'fast tempo', 'festival energy'],
   },
 };
 
