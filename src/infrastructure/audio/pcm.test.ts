@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { base64ToUint8Array, decodePcm16 } from './pcm';
+import {
+  base64ToUint8Array,
+  decodePcm16,
+  parsePcmMimeType,
+  CANONICAL_PCM_FORMAT,
+} from './pcm';
 
 /** Encode signed 16-bit samples as little-endian PCM bytes. */
 function int16leBytes(samples: number[]): Uint8Array {
@@ -29,6 +34,38 @@ describe('base64ToUint8Array', () => {
     const [mono] = decodePcm16(bytes, 1);
     expect(mono[0]).toBe(1 / 32768);
     expect(mono[1]).toBe(-1 / 32768);
+  });
+});
+
+describe('parsePcmMimeType (sample-rate verification)', () => {
+  it('treats 48 kHz stereo 16-bit as canonical', () => {
+    expect(CANONICAL_PCM_FORMAT).toEqual({ sampleRate: 48_000, channels: 2, bitsPerSample: 16 });
+  });
+
+  it('parses the rate Lyria advertises (audio/pcm;rate=48000)', () => {
+    expect(parsePcmMimeType('audio/pcm;rate=48000')).toEqual({
+      sampleRate: 48_000,
+      channels: 2,
+      bitsPerSample: 16,
+    });
+  });
+
+  it('parses rate, channels, and bit depth from an L16 mime type', () => {
+    expect(parsePcmMimeType('audio/L16;rate=44100;channels=2')).toEqual({
+      sampleRate: 44_100,
+      channels: 2,
+      bitsPerSample: 16,
+    });
+  });
+
+  it('detects a 44.1 kHz mismatch so callers can flag wrong pitch', () => {
+    expect(parsePcmMimeType('audio/pcm;rate=44100').sampleRate).toBe(44_100);
+  });
+
+  it('falls back to the canonical format when the mime type is missing/partial', () => {
+    expect(parsePcmMimeType(undefined)).toEqual(CANONICAL_PCM_FORMAT);
+    expect(parsePcmMimeType(null)).toEqual(CANONICAL_PCM_FORMAT);
+    expect(parsePcmMimeType('audio/pcm')).toEqual(CANONICAL_PCM_FORMAT);
   });
 });
 

@@ -6,6 +6,7 @@ import {
   MusicGenerationCallbacks,
   MusicGenerationConfig,
 } from '@application/ports/MusicGenerationPort';
+import { parsePcmMimeType, CANONICAL_PCM_FORMAT, type PcmFormat } from '../audio/pcm';
 
 /**
  * Configuration seeded onto a freshly-opened session so the stream begins
@@ -30,14 +31,13 @@ export interface LyriaSessionDefaults {
  * audio as a sequence of base64 audioChunks.
  */
 export class LyriaRealtimeMusicGenerator implements MusicGenerationPort {
-  private static readonly SAMPLE_RATE = 48_000;
-  private static readonly CHANNELS = 2;
   /** Log every Nth audio chunk so we confirm flow without spamming the console. */
   private static readonly LOG_EVERY = 25;
 
   private readonly client: GoogleGenAI;
   private session: LiveMusicSession | null = null;
   private chunkCount = 0;
+  private formatConfirmed = false;
 
   constructor(
     apiKey: string,
@@ -62,10 +62,14 @@ export class LyriaRealtimeMusicGenerator implements MusicGenerationPort {
             for (const chunk of chunks) {
               if (!chunk.data) continue;
               this.logChunk(chunk.data);
+              // Verify the format against the actual chunk metadata rather than
+              // assuming it: the de-interleaver and the AudioContext both depend
+              // on the true sample rate / channel count.
+              const format = this.confirmFormat(chunk.mimeType);
               callbacks.onAudioChunk({
                 data: chunk.data,
-                sampleRate: LyriaRealtimeMusicGenerator.SAMPLE_RATE,
-                channels: LyriaRealtimeMusicGenerator.CHANNELS,
+                sampleRate: format.sampleRate,
+                channels: format.channels,
               });
             }
           },
@@ -150,6 +154,35 @@ export class LyriaRealtimeMusicGenerator implements MusicGenerationPort {
         `[Lyria] audioChunk #${this.chunkCount} (~${approxBytes} bytes PCM) — stream flowing`,
       );
     }
+  }
+
+  /**
+   * Resolve the PCM format from the chunk's mime type and, the first time,
+   * confirm it in the log — warning if it deviates from the canonical
+   * 48 kHz / stereo / 16-bit we treat as the source of truth for pitch.
+   */
+  private confirmFormat(mimeType: string | null | undefined): PcmFormat {
+    const format = parsePcmMimeType(mimeType);
+    if (!this.formatConfirmed) {
+      this.formatConfirmed = true;
+      console.info(
+        `[Lyria] audio format: "${mimeType ?? 'unspecified'}" → ${format.sampleRate} Hz, ` +
+          `${format.channels}ch, ${format.bitsPerSample}-bit PCM`,
+      );
+      const c = CANONICAL_PCM_FORMAT;
+      if (
+        format.sampleRate !== c.sampleRate ||
+        format.channels !== c.channels ||
+        format.bitsPerSample !== c.bitsPerSample
+      ) {
+        console.warn(
+          `[Lyria] stream format differs from the canonical ${c.sampleRate} Hz / ` +
+            `${c.channels}ch / ${c.bitsPerSample}-bit. The AudioContext must run at ` +
+            `${format.sampleRate} Hz for correct pitch, and the decoder assumes 16-bit.`,
+        );
+      }
+    }
+    return format;
   }
 
   private ensureSession(): LiveMusicSession {

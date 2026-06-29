@@ -26,6 +26,9 @@ export class WebAudioToneOutput implements AudioOutputPort {
   private gain: Tone.Gain | null = null;
   private limiter: Tone.Limiter | null = null;
   private initialized = false;
+  /** The rate the AudioContext actually came up at (may differ from requested). */
+  private actualSampleRate = WebAudioToneOutput.SAMPLE_RATE;
+  private rateMismatchWarned = false;
 
   constructor(private readonly workletUrl = '/worklets/pcm-player-processor.js') {}
 
@@ -51,6 +54,17 @@ export class WebAudioToneOutput implements AudioOutputPort {
       latencyHint: 'interactive',
     });
     Tone.setContext(rawContext);
+
+    // The browser may not honor the requested rate (some hardware forces
+    // 44.1 kHz). `context.sampleRate` is the real rate the worklet emits at.
+    this.actualSampleRate = rawContext.sampleRate;
+    if (this.actualSampleRate !== WebAudioToneOutput.SAMPLE_RATE) {
+      console.warn(
+        `[audio] requested ${WebAudioToneOutput.SAMPLE_RATE} Hz but the AudioContext ` +
+          `came up at ${this.actualSampleRate} Hz; 48 kHz streams will be repitched ` +
+          `by the browser's resampler.`,
+      );
+    }
 
     await rawContext.audioWorklet.addModule(this.workletUrl);
     this.worklet = new AudioWorkletNode(rawContext, 'pcm-player-processor', {
@@ -79,11 +93,32 @@ export class WebAudioToneOutput implements AudioOutputPort {
       // Silently ignore until the graph is initialized via resume().
       return;
     }
+    this.verifySampleRate(chunk.sampleRate);
     const bytes = base64ToUint8Array(chunk.data);
     const channels = decodePcm16(bytes, chunk.channels);
     // Transfer the underlying buffers to the audio thread to avoid copies.
     const transferables = channels.map((c) => c.buffer);
     this.worklet.port.postMessage({ type: 'chunk', channels }, transferables);
+  }
+
+  /**
+   * Pitch is correct only when the stream's sample rate matches the rate the
+   * AudioContext renders at — otherwise playback is sped up (chipmunk) or
+   * slowed. Warn once if they diverge.
+   *
+   * Fallback if Google ever ships a non-48 kHz stream: tear down and recreate
+   * the AudioContext at `streamRate` (the browser resamples to the hardware
+   * rate), or resample the chunks to `actualSampleRate` before enqueuing.
+   */
+  private verifySampleRate(streamRate: number): void {
+    if (streamRate === this.actualSampleRate || this.rateMismatchWarned) return;
+    this.rateMismatchWarned = true;
+    const ratio = (streamRate / this.actualSampleRate).toFixed(3);
+    console.warn(
+      `[audio] sample-rate mismatch: stream is ${streamRate} Hz but the AudioContext ` +
+        `runs at ${this.actualSampleRate} Hz — pitch will be off by ${ratio}×. ` +
+        `Fallback: recreate the AudioContext at ${streamRate} Hz (or resample the chunks).`,
+    );
   }
 
   setVolume(level: number): void {

@@ -7,6 +7,42 @@
 /** Full-scale divisor for signed 16-bit PCM: -32768 maps to exactly -1.0. */
 const INT16_SCALE = 32768;
 
+/** Lyria RealTime's canonical output format. */
+export const CANONICAL_PCM_FORMAT: PcmFormat = {
+  sampleRate: 48_000,
+  channels: 2,
+  bitsPerSample: 16,
+};
+
+export interface PcmFormat {
+  sampleRate: number;
+  channels: number;
+  bitsPerSample: number;
+}
+
+function matchInt(input: string, pattern: RegExp): number | undefined {
+  const m = pattern.exec(input);
+  return m ? Number(m[1]) : undefined;
+}
+
+/**
+ * Parse a PCM mime type into its format fields. Handles the shapes Lyria /
+ * @google/genai emit, e.g. `audio/pcm;rate=48000` or
+ * `audio/L16;rate=48000;channels=2` (the `L<n>` token encodes bit depth).
+ *
+ * Any field the mime type omits falls back to {@link CANONICAL_PCM_FORMAT}
+ * (48 kHz, stereo, 16-bit) — the format we treat as canonical and verify
+ * incoming chunks against.
+ */
+export function parsePcmMimeType(mimeType: string | null | undefined): PcmFormat {
+  if (!mimeType) return { ...CANONICAL_PCM_FORMAT };
+  return {
+    sampleRate: matchInt(mimeType, /rate=(\d+)/i) ?? CANONICAL_PCM_FORMAT.sampleRate,
+    channels: matchInt(mimeType, /channels=(\d+)/i) ?? CANONICAL_PCM_FORMAT.channels,
+    bitsPerSample: matchInt(mimeType, /audio\/L(\d+)/i) ?? CANONICAL_PCM_FORMAT.bitsPerSample,
+  };
+}
+
 export function base64ToUint8Array(base64: string): Uint8Array {
   const binary = atob(base64);
   const bytes = new Uint8Array(binary.length);

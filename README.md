@@ -158,6 +158,34 @@ Tone.Gain → Tone.Limiter → destination 🔊
 The AudioWorklet processor lives in `public/worklets/pcm-player-processor.js`
 so the browser can load it as a separate module on the audio thread.
 
+### Audio format & sample rate
+
+Lyria RealTime streams **48 kHz, stereo (2-channel), 16-bit signed little-endian
+PCM**. This is treated as canonical, but it is also **verified against the actual
+chunk metadata** rather than assumed:
+
+- `LyriaRealtimeMusicGenerator` parses each chunk's `mimeType`
+  (e.g. `audio/pcm;rate=48000`) via `parsePcmMimeType`, logs a one-time
+  confirmation of the resolved `rate / channels / bit-depth`, and **warns** if it
+  deviates from 48 kHz / stereo / 16-bit. The parsed rate and channel count flow
+  through to the decoder and de-interleaver.
+- `WebAudioToneOutput` pins the `AudioContext` to 48 kHz, then reads back
+  `context.sampleRate` (the rate the browser actually granted) and warns if the
+  device forced a different rate.
+
+**Why this matters:** the AudioWorklet emits samples at the AudioContext's rate.
+Playback pitch is correct **only when the context rate equals the stream rate** —
+a 48 kHz stream played through a 44.1 kHz context plays ~8.8 % slow (and the
+reverse sounds chipmunk-fast). A wrong-sounding pitch is therefore the first
+symptom of a sample-rate mismatch.
+
+**Mismatch fallback path** (if Google ever changes the sample rate): `enqueue`
+compares the stream's reported rate to the context rate and warns once with the
+exact pitch-ratio error. To correct it, recreate the `AudioContext` at the
+stream's reported rate (the browser resamples to the hardware rate), or resample
+the decoded chunks to the context rate before enqueuing. Bit depths other than
+16-bit would also need a decoder update — `decodePcm16` assumes 16-bit.
+
 ---
 
 ## Notes & caveats
