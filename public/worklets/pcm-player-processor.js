@@ -1,30 +1,123 @@
 /**
  * AudioWorkletProcessor for gapless playback of streamed PCM audio.
  *
- * It maintains a ring of queued Float32 frames (one Float32Array per channel)
- * and feeds them to the audio graph sample-accurately on the audio thread,
- * which avoids the glitches you get from scheduling many short BufferSources.
+ * It holds a fixed-capacity ring buffer (one Float32Array per channel) and
+ * emits samples on the *audio thread*, 128 frames per render quantum,
+ * independently of whatever the main thread / UI is doing. Both the producer
+ * (`port.onmessage`) and the consumer (`process`) run on the single audio
+ * thread inside the AudioWorkletGlobalScope, so the read/write indices need no
+ * locks or atomics.
+ *
+ * Priming (jitter absorption): the processor outputs silence until it has
+ * buffered `primeFrames` of audio, then streams continuously. This absorbs
+ * network/decode/UI jitter — the most common cause of glitchy playback. On a
+ * true underrun it un-primes and re-primes rather than stuttering
+ * sample-by-sample. Overflow drops the OLDEST frames so playback latency stays
+ * bounded for a live stream.
  *
  * Messages from the main thread:
  *   { type: 'chunk', channels: Float32Array[] }  -> enqueue decoded frames
  *   { type: 'flush' }                            -> drop all buffered audio
+ *
+ * processorOptions: { channelCount?, capacityFrames?, primeFrames? }
  */
+
+/** Fixed-capacity single-producer/single-consumer ring of planar Float32 channels. */
+class RingBuffer {
+  constructor(channelCount, capacity) {
+    this.channelCount = channelCount;
+    this.capacity = capacity;
+    this.channels = [];
+    for (let c = 0; c < channelCount; c++) {
+      this.channels.push(new Float32Array(capacity));
+    }
+    this.read = 0;
+    this.write = 0;
+    this.size = 0;
+  }
+
+  get available() {
+    return this.size;
+  }
+
+  /**
+   * Append a decoded chunk ([channel][frame]). Returns the number of oldest
+   * frames dropped to make room (0 when there was space). A mono source feeding
+   * a stereo buffer is duplicated across channels.
+   */
+  push(chunkChannels) {
+    const src0 = chunkChannels[0];
+    const incoming = src0 ? src0.length : 0;
+    if (incoming === 0) return 0;
+
+    let dropped = 0;
+    const overflow = this.size + incoming - this.capacity;
+    if (overflow > 0) {
+      this.read = (this.read + overflow) % this.capacity;
+      this.size -= overflow;
+      dropped = overflow;
+    }
+
+    let w = this.write;
+    const last = chunkChannels.length - 1;
+    for (let i = 0; i < incoming; i++) {
+      for (let c = 0; c < this.channelCount; c++) {
+        const src = chunkChannels[c] || chunkChannels[last];
+        this.channels[c][w] = src ? src[i] : 0;
+      }
+      if (++w === this.capacity) w = 0;
+    }
+    this.write = w;
+    this.size += incoming;
+    return dropped;
+  }
+
+  /** Pull up to `frames` into the output channel arrays. Returns frames read. */
+  pull(outputs, frames) {
+    const toRead = Math.min(frames, this.size);
+    let r = this.read;
+    for (let i = 0; i < toRead; i++) {
+      for (let c = 0; c < outputs.length; c++) {
+        outputs[c][i] = this.channels[Math.min(c, this.channelCount - 1)][r];
+      }
+      if (++r === this.capacity) r = 0;
+    }
+    this.read = r;
+    this.size -= toRead;
+    return toRead;
+  }
+
+  clear() {
+    this.read = 0;
+    this.write = 0;
+    this.size = 0;
+  }
+}
+
 class PcmPlayerProcessor extends AudioWorkletProcessor {
-  constructor() {
+  constructor(options) {
     super();
-    /** @type {Float32Array[][]} queue of [chunk][channel] */
-    this.queue = [];
-    this.readChunk = 0;
-    this.readOffset = 0;
+    const opts = (options && options.processorOptions) || {};
+    const channelCount = opts.channelCount || 2;
+    // `sampleRate` is a global in the AudioWorkletGlobalScope.
+    const capacity = opts.capacityFrames || Math.floor(sampleRate * 12);
+    this.primeFrames =
+      opts.primeFrames != null ? opts.primeFrames : Math.floor(sampleRate * 1.5);
+
+    this.buffer = new RingBuffer(channelCount, capacity);
+    this.primed = false;
 
     this.port.onmessage = (event) => {
       const msg = event.data;
+      if (!msg) return;
       if (msg.type === 'chunk') {
-        this.queue.push(msg.channels);
+        this.buffer.push(msg.channels);
+        if (!this.primed && this.buffer.available >= this.primeFrames) {
+          this.primed = true;
+        }
       } else if (msg.type === 'flush') {
-        this.queue = [];
-        this.readChunk = 0;
-        this.readOffset = 0;
+        this.buffer.clear();
+        this.primed = false;
       }
     };
   }
@@ -32,32 +125,25 @@ class PcmPlayerProcessor extends AudioWorkletProcessor {
   process(_inputs, outputs) {
     const output = outputs[0];
     const frames = output[0].length;
-    const numChannels = output.length;
 
-    for (let i = 0; i < frames; i++) {
-      if (this.readChunk >= this.queue.length) {
-        // Underflow: output silence.
-        for (let c = 0; c < numChannels; c++) output[c][i] = 0;
-        continue;
-      }
+    if (!this.primed) {
+      // Still (re)buffering: emit silence until we have primeFrames queued.
+      for (let c = 0; c < output.length; c++) output[c].fill(0);
+      return true;
+    }
 
-      const chunk = this.queue[this.readChunk];
-      for (let c = 0; c < numChannels; c++) {
-        const channelData = chunk[Math.min(c, chunk.length - 1)];
-        output[c][i] = channelData ? channelData[this.readOffset] : 0;
-      }
+    const read = this.buffer.pull(output, frames);
 
-      this.readOffset++;
-      if (this.readOffset >= chunk[0].length) {
-        this.readOffset = 0;
-        this.readChunk++;
+    // Zero-fill any shortfall (underrun within a render quantum).
+    if (read < frames) {
+      for (let c = 0; c < output.length; c++) {
+        for (let i = read; i < frames; i++) output[c][i] = 0;
       }
     }
 
-    // Periodically compact the queue to release consumed chunks.
-    if (this.readChunk > 16) {
-      this.queue = this.queue.slice(this.readChunk);
-      this.readChunk = 0;
+    if (this.buffer.available === 0) {
+      // Drained: re-prime before resuming so we don't stutter sample-by-sample.
+      this.primed = false;
     }
 
     return true;
