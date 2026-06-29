@@ -1,5 +1,6 @@
 import React from 'react';
 import { useMusicMood } from '@interfaces/hooks/useMusicMood';
+import { EmojiMoodBoard } from '@interfaces/components/EmojiMoodBoard';
 import { MoodControls } from '@interfaces/components/MoodControls';
 import { SessionPanel } from '@interfaces/components/SessionPanel';
 import '@interfaces/styles/app.css';
@@ -19,6 +20,8 @@ export function App(): React.JSX.Element {
       </header>
 
       {error && <div className="error" role="alert">{error}</div>}
+
+      <EmojiMoodBoard />
 
       <MoodControls
         hasSession={Boolean(session)}
