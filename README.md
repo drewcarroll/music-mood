@@ -158,6 +158,14 @@ Tone.Gain → Tone.Limiter → destination 🔊
 The AudioWorklet processor lives in `public/worklets/pcm-player-processor.js`
 so the browser can load it as a separate module on the audio thread.
 
+**Pre-roll buffering:** the worklet buffers a configurable number of chunks
+(`prerollChunks`, default **3**, set via `WebAudioToneOutput`) before emitting
+the first sample, so network jitter and generation-timing variance are absorbed
+up front. If the ring buffer ever drains completely (an underrun), the processor
+re-primes — re-buffering `prerollChunks` before resuming — instead of dribbling
+out fragments separated by silence. A `flush` (e.g. on mood steer) also re-primes
+so the next mood starts cleanly.
+
 ### Audio format & sample rate
 
 Lyria RealTime streams **48 kHz, stereo (2-channel), 16-bit signed little-endian

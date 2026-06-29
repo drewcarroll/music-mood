@@ -21,6 +21,8 @@ export class WebAudioToneOutput implements AudioOutputPort {
   private static readonly CHANNELS = 2;
   /** Seconds of audio the worklet ring buffer can hold (jitter headroom). */
   private static readonly RING_SECONDS = 8;
+  /** Default chunks to pre-roll before playback starts (absorbs jitter). */
+  private static readonly PREROLL_CHUNKS = 3;
 
   private worklet: AudioWorkletNode | null = null;
   private gain: Tone.Gain | null = null;
@@ -30,7 +32,11 @@ export class WebAudioToneOutput implements AudioOutputPort {
   private actualSampleRate = WebAudioToneOutput.SAMPLE_RATE;
   private rateMismatchWarned = false;
 
-  constructor(private readonly workletUrl = '/worklets/pcm-player-processor.js') {}
+  constructor(
+    private readonly workletUrl = '/worklets/pcm-player-processor.js',
+    /** Pre-roll depth: chunks buffered before playback begins (configurable). */
+    private readonly prerollChunks: number = WebAudioToneOutput.PREROLL_CHUNKS,
+  ) {}
 
   async resume(): Promise<void> {
     try {
@@ -74,6 +80,7 @@ export class WebAudioToneOutput implements AudioOutputPort {
       processorOptions: {
         channelCount: WebAudioToneOutput.CHANNELS,
         ringSeconds: WebAudioToneOutput.RING_SECONDS,
+        prerollChunks: this.prerollChunks,
       },
     });
 

@@ -7,13 +7,21 @@
  * thread — playback never stutters when the UI is busy: main-thread jank can
  * only delay *refilling* the ring, and the buffer's headroom absorbs that.
  *
+ * Pre-roll: playback does not begin until `prerollChunks` chunks have been
+ * buffered, so network jitter and generation-timing variance are absorbed
+ * before the first sample is heard (the most common cause of glitchy start).
+ * If the ring ever drains completely mid-stream (an underrun), the processor
+ * re-enters the priming state and re-buffers `prerollChunks` before resuming,
+ * rather than dribbling out fragments separated by silence.
+ *
  * Messages from the main thread:
  *   { type: 'chunk', channels: Float32Array[] }  -> write decoded frames
  *   { type: 'flush' }                            -> drop all buffered audio
  *
  * processorOptions:
- *   channelCount?: number   number of channels to buffer (default 2)
- *   ringSeconds?:  number   ring capacity in seconds of audio (default 8)
+ *   channelCount?:  number  number of channels to buffer (default 2)
+ *   ringSeconds?:   number  ring capacity in seconds of audio (default 8)
+ *   prerollChunks?: number  chunks to buffer before (re)starting (default 3)
  */
 class PcmPlayerProcessor extends AudioWorkletProcessor {
   constructor(options) {
@@ -21,6 +29,13 @@ class PcmPlayerProcessor extends AudioWorkletProcessor {
     const opts = (options && options.processorOptions) || {};
     this.channelCount = Math.max(1, opts.channelCount || 2);
     const ringSeconds = opts.ringSeconds || 8;
+    this.prerollChunks = Math.max(0, opts.prerollChunks == null ? 3 : opts.prerollChunks);
+
+    // Pre-roll state machine: start in `priming`, only flip to `playing` once
+    // enough chunks have accumulated. `chunksSincePrime` counts chunks received
+    // while priming and resets whenever we (re-)enter the priming state.
+    this.playing = false;
+    this.chunksSincePrime = 0;
 
     // Capacity in frames per channel. `sampleRate` is a global in the
     // AudioWorkletGlobalScope and equals the AudioContext's sample rate.
@@ -34,18 +49,24 @@ class PcmPlayerProcessor extends AudioWorkletProcessor {
     this.readIndex = 0; // next frame to read
     this.available = 0; // frames currently buffered
 
-    // Diagnostics (frames lost to overflow / silence emitted on underflow).
+    // Diagnostics (frames lost to overflow / silence emitted on underflow,
+    // and how many times playback had to re-prime after an underrun).
     this.droppedFrames = 0;
     this.underflowFrames = 0;
+    this.underruns = 0;
 
     this.port.onmessage = (event) => {
       const msg = event.data;
       if (msg.type === 'chunk') {
         this.write(msg.channels);
+        if (!this.playing) this.chunksSincePrime++;
       } else if (msg.type === 'flush') {
         this.writeIndex = 0;
         this.readIndex = 0;
         this.available = 0;
+        // Re-prime after a flush so the next mood starts cleanly, not mid-gap.
+        this.playing = false;
+        this.chunksSincePrime = 0;
       }
     };
   }
@@ -95,6 +116,14 @@ class PcmPlayerProcessor extends AudioWorkletProcessor {
     this.available += incoming;
   }
 
+  /** Emit a quantum of silence and keep the node alive. */
+  emitSilence(output, frames, numChannels) {
+    for (let c = 0; c < numChannels; c++) {
+      output[c].fill(0, 0, frames);
+    }
+    return true;
+  }
+
   /**
    * Pull one render quantum out of the ring on the audio thread. Underflowed
    * tail samples are filled with silence rather than repeating stale audio.
@@ -105,6 +134,16 @@ class PcmPlayerProcessor extends AudioWorkletProcessor {
 
     const frames = output[0].length;
     const numChannels = output.length;
+
+    // Pre-roll gate: while priming, hold output at silence (without draining the
+    // ring) until enough chunks have buffered to start gaplessly.
+    if (!this.playing) {
+      if (this.chunksSincePrime < this.prerollChunks || this.available === 0) {
+        return this.emitSilence(output, frames, numChannels);
+      }
+      this.playing = true;
+    }
+
     const toRead = Math.min(frames, this.available);
 
     const firstLen = Math.min(toRead, this.capacity - this.readIndex);
@@ -128,6 +167,14 @@ class PcmPlayerProcessor extends AudioWorkletProcessor {
     }
     if (toRead < frames) {
       this.underflowFrames += frames - toRead;
+    }
+
+    // Underrun: the ring drained completely. Re-prime (re-buffer prerollChunks)
+    // before resuming so we don't emit a stream of one-quantum fragments.
+    if (this.available === 0) {
+      this.playing = false;
+      this.chunksSincePrime = 0;
+      this.underruns++;
     }
 
     return true;
