@@ -16,6 +16,12 @@ import { base64ToUint8Array, decodePcm16 } from './pcm';
  * mount the raw worklet node into Tone's signal graph for effects + transport.
  */
 export class WebAudioToneOutput implements AudioOutputPort {
+  /** Lyria RealTime streams 48 kHz PCM; the context must match to avoid resampling. */
+  private static readonly SAMPLE_RATE = 48_000;
+  private static readonly CHANNELS = 2;
+  /** Seconds of audio the worklet ring buffer can hold (jitter headroom). */
+  private static readonly RING_SECONDS = 8;
+
   private worklet: AudioWorkletNode | null = null;
   private gain: Tone.Gain | null = null;
   private limiter: Tone.Limiter | null = null;
@@ -25,26 +31,36 @@ export class WebAudioToneOutput implements AudioOutputPort {
 
   async resume(): Promise<void> {
     try {
-      // Tone.start() resumes the (suspended) AudioContext after a user gesture.
-      await Tone.start();
       if (!this.initialized) {
         await this.init();
-      } else {
-        await Tone.getContext().resume();
       }
+      // Tone.start() resumes the (suspended) AudioContext after a user gesture.
+      await Tone.start();
+      await Tone.getContext().resume();
     } catch (err) {
       throw this.toDomainError(err);
     }
   }
 
   private async init(): Promise<void> {
-    const rawContext = Tone.getContext().rawContext as unknown as AudioContext;
+    // Pin a dedicated 48 kHz context so playback matches Lyria's 48 kHz PCM
+    // sample-for-sample. ContextOptions has no sampleRate field, so we build a
+    // native AudioContext with the rate and let Tone wrap it.
+    const rawContext = new AudioContext({
+      sampleRate: WebAudioToneOutput.SAMPLE_RATE,
+      latencyHint: 'interactive',
+    });
+    Tone.setContext(rawContext);
 
     await rawContext.audioWorklet.addModule(this.workletUrl);
     this.worklet = new AudioWorkletNode(rawContext, 'pcm-player-processor', {
       numberOfInputs: 0,
       numberOfOutputs: 1,
-      outputChannelCount: [2],
+      outputChannelCount: [WebAudioToneOutput.CHANNELS],
+      processorOptions: {
+        channelCount: WebAudioToneOutput.CHANNELS,
+        ringSeconds: WebAudioToneOutput.RING_SECONDS,
+      },
     });
 
     this.limiter = new Tone.Limiter(-1);
