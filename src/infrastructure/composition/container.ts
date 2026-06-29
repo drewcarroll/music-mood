@@ -23,7 +23,10 @@ export function createContainer(): AppUseCases {
   // Shared singletons for the lifetime of the SPA.
   const repository = new InMemoryMusicSessionRepository();
   const idGenerator = new CryptoIdGenerator();
-  const generator = new LyriaRealtimeMusicGenerator(config.geminiApiKey, config.lyriaModel);
+  const generator = new LyriaRealtimeMusicGenerator(config.geminiApiKey, config.lyriaModel, {
+    initialPrompt: config.initialPrompt,
+    generationConfig: config.generationConfig,
+  });
   const audioOutput = new WebAudioToneOutput();
 
   return {

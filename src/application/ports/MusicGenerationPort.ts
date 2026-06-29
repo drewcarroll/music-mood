@@ -21,6 +21,23 @@ export interface MusicGenerationCallbacks {
 }
 
 /**
+ * Real-time generation knobs understood by Lyria RealTime. All fields are
+ * optional so a caller can tweak a single parameter without resending the
+ * whole config. The application speaks in plain numbers; mapping them onto the
+ * SDK's config shape is an infrastructure concern.
+ */
+export interface MusicGenerationConfig {
+  /** Beats per minute. */
+  bpm?: number;
+  /** How strictly the model adheres to the prompts (higher = stricter). */
+  guidance?: number;
+  /** Density of musical events (0..1). */
+  density?: number;
+  /** Tonal brightness (0..1). */
+  brightness?: number;
+}
+
+/**
  * PORT (driven interface) for a real-time generative music engine such as
  * Lyria RealTime. The application defines this contract; infrastructure
  * implements it with the @google/genai SDK. The application never imports
@@ -32,6 +49,9 @@ export interface MusicGenerationPort {
 
   /** Replace the active weighted prompts (steers the generated music). */
   setPrompts(prompts: readonly MusicPrompt[]): Promise<void>;
+
+  /** Update the real-time generation parameters (bpm, guidance, density, ...). */
+  setGenerationConfig(config: MusicGenerationConfig): Promise<void>;
 
   /** Begin / resume streaming generation. */
   play(): Promise<void>;

@@ -1,10 +1,22 @@
-import { GoogleGenAI } from '@google/genai';
+import { GoogleGenAI, type LiveMusicSession, type LiveMusicServerMessage } from '@google/genai';
 import { MusicPrompt } from '@domain/value-objects/MusicPrompt';
 import { DomainError } from '@domain/errors/DomainError';
 import {
   MusicGenerationPort,
   MusicGenerationCallbacks,
+  MusicGenerationConfig,
 } from '@application/ports/MusicGenerationPort';
+
+/**
+ * Configuration seeded onto a freshly-opened session so the stream begins
+ * flowing immediately, before any mood-driven steering arrives.
+ */
+export interface LyriaSessionDefaults {
+  /** A single hardcoded weighted prompt sent via setWeightedPrompts. */
+  initialPrompt: { text: string; weight: number };
+  /** Generation parameters (bpm, guidance, density, brightness). */
+  generationConfig: MusicGenerationConfig;
+}
 
 /**
  * Infrastructure adapter that implements MusicGenerationPort using
@@ -13,39 +25,43 @@ import {
  * All SDK-specific knowledge is confined here. Raw SDK errors are caught and
  * re-thrown as DomainError so outer layers never depend on SDK exception types.
  *
- * Lyria RealTime streams 48kHz, 16-bit, stereo PCM audio over a live session.
+ * The Lyria RealTime live-music API lives under `ai.live.music` and is only
+ * served on the `v1alpha` API version. It streams 48kHz, 16-bit, stereo PCM
+ * audio as a sequence of base64 audioChunks.
  */
 export class LyriaRealtimeMusicGenerator implements MusicGenerationPort {
   private static readonly SAMPLE_RATE = 48_000;
   private static readonly CHANNELS = 2;
+  /** Log every Nth audio chunk so we confirm flow without spamming the console. */
+  private static readonly LOG_EVERY = 25;
 
   private readonly client: GoogleGenAI;
-  // The live music session object returned by the SDK is loosely typed across
-  // SDK versions; we keep a minimal local shape to avoid leaking `any`.
-  private session: LyriaSession | null = null;
-  private callbacks: MusicGenerationCallbacks | null = null;
+  private session: LiveMusicSession | null = null;
+  private chunkCount = 0;
 
   constructor(
     apiKey: string,
     private readonly model: string = 'models/lyria-realtime-exp',
+    private readonly defaults?: LyriaSessionDefaults,
   ) {
     if (!apiKey) {
       throw new DomainError('A Gemini API key is required to start the music generator.');
     }
-    this.client = new GoogleGenAI({ apiKey, apiVersion: 'v1alpha' });
+    // Lyria RealTime is only exposed on the v1alpha surface.
+    this.client = new GoogleGenAI({ apiKey, httpOptions: { apiVersion: 'v1alpha' } });
   }
 
   async connect(callbacks: MusicGenerationCallbacks): Promise<void> {
-    this.callbacks = callbacks;
+    this.chunkCount = 0;
     try {
-      // The live music API surface lives under client.live.music in @google/genai.
-      const live = (this.client as unknown as { live: { music: LyriaLiveMusic } }).live.music;
-      this.session = await live.connect({
+      this.session = await this.client.live.music.connect({
         model: this.model,
         callbacks: {
-          onmessage: (message: LyriaServerMessage) => {
+          onmessage: (message: LiveMusicServerMessage) => {
             const chunks = message.serverContent?.audioChunks ?? [];
             for (const chunk of chunks) {
+              if (!chunk.data) continue;
+              this.logChunk(chunk.data);
               callbacks.onAudioChunk({
                 data: chunk.data,
                 sampleRate: LyriaRealtimeMusicGenerator.SAMPLE_RATE,
@@ -53,19 +69,29 @@ export class LyriaRealtimeMusicGenerator implements MusicGenerationPort {
               });
             }
           },
-          onerror: (err: unknown) => callbacks.onError(this.toDomainError(err)),
+          onerror: (err) => callbacks.onError(this.toDomainError(err)),
           onclose: () => callbacks.onClosed?.(),
         },
       });
+      console.info(`[Lyria] connected to ${this.model} (v1alpha)`);
+
+      // Seed the session so the stream is ready to flow the moment play() is
+      // called: a single hardcoded weighted prompt plus the generation config.
+      if (this.defaults) {
+        await this.setPrompts([
+          MusicPrompt.create(this.defaults.initialPrompt.text, this.defaults.initialPrompt.weight),
+        ]);
+        await this.setGenerationConfig(this.defaults.generationConfig);
+      }
     } catch (err) {
       throw this.toDomainError(err);
     }
   }
 
   async setPrompts(prompts: readonly MusicPrompt[]): Promise<void> {
-    this.ensureSession();
+    const session = this.ensureSession();
     try {
-      await this.session!.setWeightedPrompts({
+      await session.setWeightedPrompts({
         weightedPrompts: prompts.map((p) => ({ text: p.text, weight: p.weight })),
       });
     } catch (err) {
@@ -73,19 +99,30 @@ export class LyriaRealtimeMusicGenerator implements MusicGenerationPort {
     }
   }
 
-  async play(): Promise<void> {
-    this.ensureSession();
+  async setGenerationConfig(config: MusicGenerationConfig): Promise<void> {
+    const session = this.ensureSession();
     try {
-      await this.session!.play();
+      await session.setMusicGenerationConfig({ musicGenerationConfig: config });
+      console.info('[Lyria] generation config applied:', config);
+    } catch (err) {
+      throw this.toDomainError(err);
+    }
+  }
+
+  async play(): Promise<void> {
+    const session = this.ensureSession();
+    try {
+      session.play();
+      console.info('[Lyria] play() — stream started');
     } catch (err) {
       throw this.toDomainError(err);
     }
   }
 
   async pause(): Promise<void> {
-    this.ensureSession();
+    const session = this.ensureSession();
     try {
-      await this.session!.pause();
+      session.pause();
     } catch (err) {
       throw this.toDomainError(err);
     }
@@ -94,58 +131,36 @@ export class LyriaRealtimeMusicGenerator implements MusicGenerationPort {
   async stop(): Promise<void> {
     if (!this.session) return;
     try {
-      await this.session.stop();
-      this.session.close?.();
+      this.session.stop();
+      this.session.close();
     } catch (err) {
       throw this.toDomainError(err);
     } finally {
       this.session = null;
-      this.callbacks = null;
     }
   }
 
-  private ensureSession(): void {
+  /** Confirm the stream is flowing without flooding the console. */
+  private logChunk(data: string): void {
+    this.chunkCount += 1;
+    if (this.chunkCount === 1 || this.chunkCount % LyriaRealtimeMusicGenerator.LOG_EVERY === 0) {
+      // base64 length ~ 4/3 of decoded bytes; close enough for a flow indicator.
+      const approxBytes = Math.floor((data.length * 3) / 4);
+      console.info(
+        `[Lyria] audioChunk #${this.chunkCount} (~${approxBytes} bytes PCM) — stream flowing`,
+      );
+    }
+  }
+
+  private ensureSession(): LiveMusicSession {
     if (!this.session) {
       throw new DomainError('Music generation session is not connected. Call connect() first.');
     }
+    return this.session;
   }
 
   private toDomainError(err: unknown): DomainError {
     const message = err instanceof Error ? err.message : String(err);
     return new DomainError(`Lyria RealTime error: ${message}`);
   }
-}
-
-/* ------------------------------------------------------------------ *
- * Minimal local typings for the Lyria live-music surface. These keep
- * the adapter strongly typed without leaking SDK internals or `any`.
- * ------------------------------------------------------------------ */
-
-interface WeightedPromptInput {
-  weightedPrompts: Array<{ text: string; weight: number }>;
-}
-
-interface LyriaServerMessage {
-  serverContent?: {
-    audioChunks?: Array<{ data: string }>;
-  };
-}
-
-interface LyriaSession {
-  setWeightedPrompts(input: WeightedPromptInput): Promise<void>;
-  play(): Promise<void>;
-  pause(): Promise<void>;
-  stop(): Promise<void>;
-  close?(): void;
-}
-
-interface LyriaLiveMusic {
-  connect(config: {
-    model: string;
-    callbacks: {
-      onmessage: (message: LyriaServerMessage) => void;
-      onerror: (err: unknown) => void;
-      onclose: () => void;
-    };
-  }): Promise<LyriaSession>;
 }

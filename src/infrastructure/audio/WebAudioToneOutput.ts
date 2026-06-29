@@ -83,7 +83,9 @@ export class WebAudioToneOutput implements AudioOutputPort {
   async suspend(): Promise<void> {
     try {
       this.flush();
-      await Tone.getContext().rawContext.suspend?.();
+      // rawContext is typed as AudioContext | OfflineAudioContext; only the
+      // realtime AudioContext (which this always is) exposes a no-arg suspend().
+      await (Tone.getContext().rawContext as AudioContext).suspend();
     } catch (err) {
       throw this.toDomainError(err);
     }

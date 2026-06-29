@@ -1,11 +1,25 @@
+import type { MusicGenerationConfig } from '@application/ports/MusicGenerationPort';
+
 /**
  * Centralized environment access. Per the layer rules, env vars are read
  * ONLY in infrastructure. Vite exposes variables prefixed with VITE_ via
  * import.meta.env.
  */
-interface AppConfig {
+export interface AppConfig {
   geminiApiKey: string;
   lyriaModel: string;
+  /**
+   * The hardcoded weighted prompt used to seed a freshly-opened session so the
+   * stream starts flowing immediately. Mood-driven steering replaces it later.
+   */
+  initialPrompt: { text: string; weight: number };
+  /** Default real-time generation parameters applied on connect. */
+  generationConfig: MusicGenerationConfig;
+}
+
+function num(value: string | undefined, fallback: number): number {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
 }
 
 export function loadConfig(): AppConfig {
@@ -20,5 +34,18 @@ export function loadConfig(): AppConfig {
     );
   }
 
-  return { geminiApiKey, lyriaModel };
+  return {
+    geminiApiKey,
+    lyriaModel,
+    initialPrompt: {
+      text: (env.VITE_LYRIA_INITIAL_PROMPT as string | undefined) ?? 'lush ambient soundscape',
+      weight: num(env.VITE_LYRIA_INITIAL_PROMPT_WEIGHT as string | undefined, 1.0),
+    },
+    generationConfig: {
+      bpm: num(env.VITE_LYRIA_BPM as string | undefined, 110),
+      guidance: num(env.VITE_LYRIA_GUIDANCE as string | undefined, 2.5),
+      density: num(env.VITE_LYRIA_DENSITY as string | undefined, 0.6),
+      brightness: num(env.VITE_LYRIA_BRIGHTNESS as string | undefined, 0.5),
+    },
+  };
 }
