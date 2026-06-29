@@ -1,6 +1,10 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { MusicSessionDto } from '@application/dtos/MusicSessionDto';
+import { WeightedEmotion } from '@domain/value-objects/EmotionDescriptor';
 import { useMusicSessionController } from '@interfaces/context/UseCasesContext';
+
+/** Coalesce rapid slider drags into one setWeightedPrompts call per ~120ms. */
+const EMOTION_DEBOUNCE_MS = 120;
 
 interface MusicMoodState {
   session: MusicSessionDto | null;
@@ -69,5 +73,31 @@ export function useMusicMood() {
     return apply(() => controller.stop(id));
   }, [apply, controller, state.session?.id]);
 
-  return { ...state, start, steer, play, pause, stop };
+  // Debounced emoji-mix steering. Only meaningful once a stream is live, so it
+  // no-ops without an active session (and skips the board's initial mount fire).
+  const hasSession = Boolean(state.session);
+  const emotionTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const setEmotionMix = useCallback(
+    (emotions: readonly WeightedEmotion[]) => {
+      if (!hasSession) return;
+      const weights = emotions.map((e) => ({ name: e.name, weight: e.target }));
+      if (emotionTimer.current) clearTimeout(emotionTimer.current);
+      emotionTimer.current = setTimeout(() => {
+        void controller.setEmotionMix(weights).then((result) => {
+          if (!result.ok) setState((s) => ({ ...s, error: result.error }));
+        });
+      }, EMOTION_DEBOUNCE_MS);
+    },
+    [controller, hasSession],
+  );
+
+  useEffect(
+    () => () => {
+      if (emotionTimer.current) clearTimeout(emotionTimer.current);
+    },
+    [],
+  );
+
+  return { ...state, start, steer, play, pause, stop, setEmotionMix };
 }

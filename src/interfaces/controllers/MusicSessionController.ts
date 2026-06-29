@@ -1,5 +1,6 @@
 import { AppUseCases } from '@application/AppUseCases';
 import { MusicSessionDto } from '@application/dtos/MusicSessionDto';
+import { EmotionMixResultDto } from '@application/dtos/EmotionMixDto';
 
 /**
  * Controller (interface adapter).
@@ -32,6 +33,19 @@ export class MusicSessionController {
     );
   }
 
+  /**
+   * Apply the five-emoji weight mix to the live stream. Validates input shape
+   * only (finite weights); the zero-weight rule lives in the domain mixer.
+   */
+  async setEmotionMix(
+    weights: Array<{ name: string; weight: number }>,
+  ): Promise<Result<EmotionMixResultDto>> {
+    const sanitized = weights.filter(
+      (w) => typeof w.name === 'string' && Number.isFinite(w.weight),
+    );
+    return this.run(() => this.useCases.steerEmotionMix.execute({ weights: sanitized }));
+  }
+
   async play(sessionId: string): Promise<Result<MusicSessionDto>> {
     return this.control(sessionId, 'play');
   }
@@ -52,7 +66,7 @@ export class MusicSessionController {
     return this.run(() => this.useCases.controlPlayback.execute({ sessionId, action }));
   }
 
-  private async run(fn: () => Promise<MusicSessionDto>): Promise<Result<MusicSessionDto>> {
+  private async run<T>(fn: () => Promise<T>): Promise<Result<T>> {
     try {
       const data = await fn();
       return { ok: true, data };

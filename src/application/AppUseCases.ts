@@ -1,5 +1,6 @@
 import { StartMusicSessionUseCase } from './use-cases/StartMusicSessionUseCase';
 import { SteerMoodUseCase } from './use-cases/SteerMoodUseCase';
+import { SteerEmotionMixUseCase } from './use-cases/SteerEmotionMixUseCase';
 import { ControlPlaybackUseCase } from './use-cases/ControlPlaybackUseCase';
 
 /**
@@ -10,5 +11,6 @@ import { ControlPlaybackUseCase } from './use-cases/ControlPlaybackUseCase';
 export interface AppUseCases {
   startSession: StartMusicSessionUseCase;
   steerMood: SteerMoodUseCase;
+  steerEmotionMix: SteerEmotionMixUseCase;
   controlPlayback: ControlPlaybackUseCase;
 }

@@ -96,6 +96,14 @@ body {
   cursor: pointer;
 }
 
+.emoji-board.is-disabled {
+  opacity: 0.55;
+}
+
+.emoji-board.is-disabled .emoji-range {
+  cursor: not-allowed;
+}
+
 .field {
   display: flex;
   flex-direction: column;

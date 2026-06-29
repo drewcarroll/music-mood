@@ -1,6 +1,7 @@
 import { AppUseCases } from '@application/AppUseCases';
 import { StartMusicSessionUseCase } from '@application/use-cases/StartMusicSessionUseCase';
 import { SteerMoodUseCase } from '@application/use-cases/SteerMoodUseCase';
+import { SteerEmotionMixUseCase } from '@application/use-cases/SteerEmotionMixUseCase';
 import { ControlPlaybackUseCase } from '@application/use-cases/ControlPlaybackUseCase';
 
 import { loadConfig } from '../config/env';
@@ -32,6 +33,7 @@ export function createContainer(): AppUseCases {
   return {
     startSession: new StartMusicSessionUseCase(repository, generator, audioOutput, idGenerator),
     steerMood: new SteerMoodUseCase(repository, generator, audioOutput),
+    steerEmotionMix: new SteerEmotionMixUseCase(generator),
     controlPlayback: new ControlPlaybackUseCase(repository, generator, audioOutput),
   };
 }

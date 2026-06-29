@@ -12,6 +12,8 @@ const WEIGHT_STEP = 0.01;
 interface EmojiMoodBoardProps {
   /** Baseline target weight every emotion starts at (defaults to 1 — neutral). */
   initialWeight?: number;
+  /** Disables the sliders (e.g. before a stream is live). */
+  disabled?: boolean;
   /** Notified with the full set whenever a slider moves. */
   onChange?: (emotions: readonly WeightedEmotion[]) => void;
 }
@@ -24,6 +26,7 @@ interface EmojiMoodBoardProps {
  */
 export function EmojiMoodBoard({
   initialWeight = 1,
+  disabled = false,
   onChange,
 }: EmojiMoodBoardProps): React.JSX.Element {
   const [emotions, setEmotions] = useState<WeightedEmotion[]>(() =>
@@ -41,7 +44,10 @@ export function EmojiMoodBoard({
   };
 
   return (
-    <section className="emoji-board" aria-label="Emotion mix">
+    <section
+      className={`emoji-board${disabled ? ' is-disabled' : ''}`}
+      aria-label="Emotion mix"
+    >
       {emotions.map((emotion) => {
         const sliderId = `emoji-slider-${emotion.name}`;
         return (
@@ -63,6 +69,7 @@ export function EmojiMoodBoard({
               max={MAX_EMOTION_WEIGHT}
               step={WEIGHT_STEP}
               value={emotion.target}
+              disabled={disabled}
               aria-valuetext={`${emotion.target.toFixed(2)} of ${MAX_EMOTION_WEIGHT}`}
               onChange={(e) => handleTargetChange(emotion.name, Number(e.target.value))}
             />
