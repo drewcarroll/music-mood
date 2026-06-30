@@ -35,11 +35,22 @@ export function createContainer(): AppUseCases {
       ? new EphemeralTokenAuthProvider(config.authTokenEndpoint)
       : new DirectKeyAuthProvider(config.geminiApiKey);
 
-  const generator = new LyriaRealtimeMusicGenerator(authProvider, config.lyriaModel, {
-    initialPrompt: config.initialPrompt,
-    generationConfig: config.generationConfig,
-  });
-  const audioOutput = new WebAudioToneOutput();
+  const generator = new LyriaRealtimeMusicGenerator(
+    authProvider,
+    config.lyriaModel,
+    {
+      initialPrompt: config.initialPrompt,
+      generationConfig: config.generationConfig,
+    },
+    config.reconnection,
+  );
+  // Crossfade duration is shared so the audio blend matches the generator's
+  // handoff window (it keeps the old stream's buffer playing through the fade).
+  const audioOutput = new WebAudioToneOutput(
+    undefined,
+    undefined,
+    config.reconnection.crossfadeMs / 1000,
+  );
 
   return {
     startSession: new StartMusicSessionUseCase(repository, generator, audioOutput, idGenerator),

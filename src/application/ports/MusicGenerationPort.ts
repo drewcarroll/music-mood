@@ -12,6 +12,14 @@ export interface AudioChunk {
   sampleRate: number;
   /** Number of interleaved channels. */
   channels: number;
+  /**
+   * Identifies which underlying stream produced this chunk. Stays constant for
+   * a stream's lifetime and changes when the generator transparently reconnects
+   * (the ~10-min session cap). The audio output crossfades between sources when
+   * this value changes, so a reconnect is heard as a smooth blend, not a cutout.
+   * Optional: when absent the output treats all chunks as a single source.
+   */
+  sourceId?: string;
 }
 
 export interface MusicGenerationCallbacks {

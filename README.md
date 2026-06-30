@@ -203,10 +203,10 @@ WebAudioToneOutput
    decode PCM16 → Float32 (per channel)
         │  postMessage (transfer)
         ▼
-AudioWorklet: pcm-player-processor  (gapless ring buffer)
+AudioWorklet: pcm-player-processor  (gapless ring buffer)   ← one per source
         │
         ▼
-Tone.Gain → Tone.Limiter → destination 🔊
+per-source Tone.Gain → master Tone.Gain → Tone.Limiter → destination 🔊
 ```
 
 The AudioWorklet processor lives in `public/worklets/pcm-player-processor.js`
@@ -219,6 +219,39 @@ up front. If the ring buffer ever drains completely (an underrun), the processor
 re-primes — re-buffering `prerollChunks` before resuming — instead of dribbling
 out fragments separated by silence. A `flush` (e.g. on mood steer) also re-primes
 so the next mood starts cleanly.
+
+### Transparent reconnection (the ~10-minute cap)
+
+Lyria RealTime live sessions are capped at **~10 minutes**, so a long demo would
+cut out mid-performance. `LyriaRealtimeMusicGenerator` prevents that by
+reconnecting **transparently**, before the limit — session-lifecycle management
+is a transport concern, so it lives in the infrastructure adapter (the same way
+reconnect/retry logic lives in any WebSocket client):
+
+```
+0 ─────────────► ~8.5 min ──~7s settle──► handoff ──~2s crossfade──► close old
+                 open + seed   new stream   flip active   blend old→new
+                 replacement   is flowing    source id
+└──────────────── all finishes well before the ~10-min cap ───────────────────┘
+```
+
+1. **Open before the limit.** At ~8.5 min a *second* Lyria session is opened and
+   re-seeded with the **current** prompts + generation config (the generator
+   remembers the last-applied values), so the replacement sounds identical.
+2. **Settle.** A fresh stream takes ~5–10 s to settle. During that window the old
+   stream keeps playing and the replacement's chunks are **dropped** (only the
+   active source is forwarded), so the two never double up.
+3. **Crossfade — no cutout.** At handoff the generator tags chunks with the new
+   stream's `sourceId`. `WebAudioToneOutput` keeps one worklet + gain *per
+   source* and **equal-power crossfades** old→new over ~2 s; the old stream's
+   already-buffered audio covers the fade as its gain ramps to zero, then its
+   node and session are retired.
+
+The timing policy is a small pure module (`reconnectionSchedule.ts`,
+unit-tested) that **clamps** the durations so the whole dance always finishes
+before the cap. Tune via `VITE_RECONNECT_AFTER_MS`, `VITE_RECONNECT_SETTLE_MS`,
+and `VITE_RECONNECT_CROSSFADE_MS` (handy for exercising a reconnect in seconds
+rather than minutes during a demo).
 
 ### Audio format & sample rate
 

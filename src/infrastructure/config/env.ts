@@ -1,4 +1,5 @@
 import type { MusicGenerationConfig } from '@application/ports/MusicGenerationPort';
+import { DEFAULT_RECONNECTION, type ReconnectionOptions } from '../genai/reconnectionSchedule';
 
 /**
  * Centralized environment access. Per the layer rules, env vars are read
@@ -28,6 +29,11 @@ export interface AppConfig {
   initialPrompt: { text: string; weight: number };
   /** Default real-time generation parameters applied on connect. */
   generationConfig: MusicGenerationConfig;
+  /**
+   * Timing for transparent reconnection ahead of the ~10-min session cap.
+   * Clamped by the generator so the handoff always finishes before the cap.
+   */
+  reconnection: ReconnectionOptions;
 }
 
 function num(value: string | undefined, fallback: number): number {
@@ -78,6 +84,22 @@ export function loadConfig(): AppConfig {
       density: num(env.VITE_LYRIA_DENSITY as string | undefined, 0.6),
       brightness: num(env.VITE_LYRIA_BRIGHTNESS as string | undefined, 0.5),
       scale: (env.VITE_LYRIA_SCALE as string | undefined) ?? 'C_MAJOR_A_MINOR',
+    },
+    // Open the replacement session ~8.5 min in, settle ~7s, crossfade ~2s — all
+    // comfortably before the ~10-min cap. Overridable for tuning/demos.
+    reconnection: {
+      reconnectAfterMs: num(
+        env.VITE_RECONNECT_AFTER_MS as string | undefined,
+        DEFAULT_RECONNECTION.reconnectAfterMs,
+      ),
+      settleMs: num(
+        env.VITE_RECONNECT_SETTLE_MS as string | undefined,
+        DEFAULT_RECONNECTION.settleMs,
+      ),
+      crossfadeMs: num(
+        env.VITE_RECONNECT_CROSSFADE_MS as string | undefined,
+        DEFAULT_RECONNECTION.crossfadeMs,
+      ),
     },
   };
 }
