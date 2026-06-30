@@ -3,6 +3,8 @@ import React, { useState } from 'react';
 interface MoodControlsProps {
   hasSession: boolean;
   busy: boolean;
+  /** A fresh stream is still stabilizing; steering is held until it settles. */
+  settling?: boolean;
   onStart: (mood: string, intensity: number) => void;
   onSteer: (mood: string, intensity: number) => void;
 }
@@ -16,6 +18,7 @@ const SUGGESTIONS = ['calm', 'energetic', 'melancholic', 'euphoric', 'mysterious
 export function MoodControls({
   hasSession,
   busy,
+  settling = false,
   onStart,
   onSteer,
 }: MoodControlsProps): React.JSX.Element {
@@ -56,8 +59,12 @@ export function MoodControls({
         <button type="button" disabled={busy} onClick={() => onStart(mood, intensity)}>
           {hasSession ? 'Restart' : 'Generate'}
         </button>
-        <button type="button" disabled={busy || !hasSession} onClick={() => onSteer(mood, intensity)}>
-          Steer mood
+        <button
+          type="button"
+          disabled={busy || !hasSession || settling}
+          onClick={() => onSteer(mood, intensity)}
+        >
+          {settling ? 'Settling…' : 'Steer mood'}
         </button>
       </div>
     </section>

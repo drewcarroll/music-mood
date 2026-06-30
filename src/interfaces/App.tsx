@@ -10,7 +10,8 @@ import '@interfaces/styles/app.css';
  * all behavior flows through the controller via the useMusicMood hook.
  */
 export function App(): React.JSX.Element {
-  const { session, busy, error, start, steer, play, pause, stop, setEmotionMix } = useMusicMood();
+  const { session, busy, error, settling, start, steer, play, pause, stop, setEmotionMix } =
+    useMusicMood();
 
   return (
     <main className="app">
@@ -21,11 +22,12 @@ export function App(): React.JSX.Element {
 
       {error && <div className="error" role="alert">{error}</div>}
 
-      <EmojiMoodBoard disabled={!session} onChange={setEmotionMix} />
+      <EmojiMoodBoard disabled={!session || settling} settling={settling} onChange={setEmotionMix} />
 
       <MoodControls
         hasSession={Boolean(session)}
         busy={busy}
+        settling={settling}
         onStart={start}
         onSteer={steer}
       />

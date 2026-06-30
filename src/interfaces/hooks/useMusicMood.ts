@@ -11,6 +11,14 @@ import { useMusicSessionController } from '@interfaces/context/UseCasesContext';
  */
 const EASE_TICK_MS = 120;
 
+/**
+ * A freshly-opened (or restarted) stream spends several seconds settling into a
+ * coherent sound. We hold the steering controls in a "settling" state for this
+ * long after a start so the opening isn't the wobbly warm-up period and the
+ * user's first slider move lands on an already-stable stream.
+ */
+const SETTLE_MS = 10_000;
+
 /** Per-emotion live weight: the slider `target` and its last eased `current`. */
 interface LiveWeight {
   name: string;
@@ -22,6 +30,8 @@ interface MusicMoodState {
   session: MusicSessionDto | null;
   busy: boolean;
   error: string | null;
+  /** True while a fresh stream stabilizes — controls are held until it clears. */
+  settling: boolean;
 }
 
 /**
@@ -34,7 +44,35 @@ export function useMusicMood() {
     session: null,
     busy: false,
     error: null,
+    settling: false,
   });
+
+  // While a fresh stream stabilizes we gate the controls. The ref drives the
+  // high-frequency easing loop (no re-render); the state flag drives the UI.
+  const settleTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const settlingRef = useRef(false);
+
+  const clearSettling = useCallback(() => {
+    if (settleTimer.current !== null) {
+      clearTimeout(settleTimer.current);
+      settleTimer.current = null;
+    }
+    settlingRef.current = false;
+  }, []);
+
+  const beginSettling = useCallback(() => {
+    clearSettling();
+    settlingRef.current = true;
+    setState((s) => ({ ...s, settling: true }));
+    settleTimer.current = setTimeout(() => {
+      settleTimer.current = null;
+      settlingRef.current = false;
+      setState((s) => ({ ...s, settling: false }));
+    }, SETTLE_MS);
+  }, [clearSettling]);
+
+  // Drop any pending settle timer on unmount.
+  useEffect(() => clearSettling, [clearSettling]);
 
   const apply = useCallback(
     async (
@@ -45,17 +83,30 @@ export function useMusicMood() {
       setState((s) => ({ ...s, busy: true, error: null }));
       const result = await action();
       if (result.ok) {
-        setState({ session: result.data, busy: false, error: null });
+        // Any completed action other than a start ends settling — clear the ref
+        // and timer too so the easing loop's gate stays in sync with the UI.
+        clearSettling();
+        setState({ session: result.data, busy: false, error: null, settling: false });
       } else {
         setState((s) => ({ ...s, busy: false, error: result.error }));
       }
     },
-    [],
+    [clearSettling],
   );
 
   const start = useCallback(
-    (mood: string, intensity: number) => apply(() => controller.start(mood, intensity)),
-    [apply, controller],
+    async (mood: string, intensity: number) => {
+      setState((s) => ({ ...s, busy: true, error: null }));
+      const result = await controller.start(mood, intensity);
+      if (result.ok) {
+        // A fresh stream is live but raw — hold the controls while it settles.
+        setState({ session: result.data, busy: false, error: null, settling: true });
+        beginSettling();
+      } else {
+        setState((s) => ({ ...s, busy: false, error: result.error }));
+      }
+    },
+    [controller, beginSettling],
   );
 
   const steer = useCallback(
@@ -82,8 +133,9 @@ export function useMusicMood() {
   const stop = useCallback(() => {
     const id = state.session?.id;
     if (!id) return;
+    clearSettling();
     return apply(() => controller.stop(id));
-  }, [apply, controller, state.session?.id]);
+  }, [apply, controller, state.session?.id, clearSettling]);
 
   // Emoji-mix easing render loop. The board reports slider positions via
   // setEmotionMix; we only record them as `target`s here. A ~120ms tick eases
@@ -111,8 +163,9 @@ export function useMusicMood() {
     if (!hasSession) return;
     let inFlight = false;
     const id = setInterval(() => {
-      // Skip while a push is outstanding, and idle once the mix has settled.
-      if (!easingRef.current || inFlight) return;
+      // Hold off entirely while the fresh stream is still settling, skip while a
+      // push is outstanding, and idle once the mix has settled.
+      if (settlingRef.current || !easingRef.current || inFlight) return;
       inFlight = true;
       void controller
         .advanceEmotionMix(mixRef.current.map((m) => ({ ...m })))

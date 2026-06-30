@@ -14,6 +14,11 @@ interface EmojiMoodBoardProps {
   initialWeight?: number;
   /** Disables the sliders (e.g. before a stream is live). */
   disabled?: boolean;
+  /**
+   * The stream is live but still stabilizing: the sliders are held and a
+   * settling indicator is shown until the opening has settled.
+   */
+  settling?: boolean;
   /** Notified with the full set whenever a slider moves. */
   onChange?: (emotions: readonly WeightedEmotion[]) => void;
 }
@@ -27,6 +32,7 @@ interface EmojiMoodBoardProps {
 export function EmojiMoodBoard({
   initialWeight = 1,
   disabled = false,
+  settling = false,
   onChange,
 }: EmojiMoodBoardProps): React.JSX.Element {
   const [emotions, setEmotions] = useState<WeightedEmotion[]>(() =>
@@ -45,9 +51,16 @@ export function EmojiMoodBoard({
 
   return (
     <section
-      className={`emoji-board${disabled ? ' is-disabled' : ''}`}
+      className={`emoji-board${disabled ? ' is-disabled' : ''}${settling ? ' is-settling' : ''}`}
       aria-label="Emotion mix"
+      aria-busy={settling}
     >
+      {settling && (
+        <p className="settling-note" role="status">
+          <span className="settling-spinner" aria-hidden="true" />
+          Letting the stream settle… controls unlock in a moment.
+        </p>
+      )}
       {emotions.map((emotion) => {
         const sliderId = `emoji-slider-${emotion.name}`;
         return (
