@@ -17,18 +17,42 @@ export class MusicSession {
 
   private constructor(
     public readonly id: string,
-    private _mood: Mood,
+    private _mood: Mood | null,
+    private _label: string,
     public readonly createdAt: Date,
   ) {}
 
   static start(id: string, mood: Mood, now: Date = new Date()): MusicSession {
-    const session = new MusicSession(id, mood, now);
+    const session = new MusicSession(id, mood, mood.name, now);
     session._prompts = mood ? session.derivePrompts(mood) : [];
     return session;
   }
 
-  get mood(): Mood {
+  /**
+   * Start a session directly from a pre-built prompt set (e.g. the emoji-mix
+   * blend). Unlike `start`, this session has no single canonical Mood — it
+   * originates from a blend — so `mood` is null and `label` carries the
+   * human-readable description shown in the UI.
+   */
+  static startFromPrompts(
+    id: string,
+    label: string,
+    prompts: readonly MusicPrompt[],
+    now: Date = new Date(),
+  ): MusicSession {
+    const session = new MusicSession(id, null, label, now);
+    session._prompts = [...prompts];
+    return session;
+  }
+
+  /** A canonical Mood when the session was seeded from one; null for a blend. */
+  get mood(): Mood | null {
     return this._mood;
+  }
+
+  /** Human-readable description of what's playing (mood name or blend label). */
+  get label(): string {
+    return this._label;
   }
 
   get status(): SessionStatus {
@@ -64,6 +88,7 @@ export class MusicSession {
       throw new InvalidSessionStateError('Cannot steer a stopped session.');
     }
     this._mood = mood;
+    this._label = mood.name;
     this._prompts = this.derivePrompts(mood);
   }
 

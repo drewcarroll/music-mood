@@ -31,8 +31,8 @@ export interface MusicSessionDto {
 export function toMusicSessionDto(session: MusicSession): MusicSessionDto {
   return {
     id: session.id,
-    mood: session.mood.name,
-    intensity: session.mood.intensity,
+    mood: session.label,
+    intensity: session.mood?.intensity ?? 1,
     status: session.status,
     prompts: session.prompts.map((p) => ({ text: p.text, weight: p.weight })),
     createdAt: session.createdAt.toISOString(),

@@ -21,6 +21,19 @@ export class MusicSessionController {
     );
   }
 
+  /**
+   * Start a session seeded from the emoji-mix slider positions. Validates input
+   * shape only (finite targets); the blend/seed rules live in the domain.
+   */
+  async startFromMix(
+    weights: Array<{ name: string; target: number; current: number }>,
+  ): Promise<Result<MusicSessionDto>> {
+    const sanitized = weights.filter(
+      (w) => typeof w.name === 'string' && Number.isFinite(w.target),
+    );
+    return this.run(() => this.useCases.startSession.startFromMix({ weights: sanitized }));
+  }
+
   async steer(
     sessionId: string,
     moodInput: string,

@@ -10,8 +10,6 @@ import type { LiveWeight } from '@interfaces/hooks/useMusicMood';
 interface MoodVisualizerProps {
   /** Stable accessor onto the live eased mix; polled once per animation frame. */
   getWeights: () => LiveWeight[];
-  /** Whether a stream is live — drives the idle hint overlay. */
-  active?: boolean;
 }
 
 type Rgb = readonly [number, number, number];
@@ -47,7 +45,7 @@ const START_ANGLE = -Math.PI / 2;
  * The weights step every ~120ms (the easing tick); the canvas lerps toward them
  * each frame, so the motion stays smooth between steps and as sliders move.
  */
-export function MoodVisualizer({ getWeights, active = false }: MoodVisualizerProps): React.JSX.Element {
+export function MoodVisualizer({ getWeights }: MoodVisualizerProps): React.JSX.Element {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   // Displayed (smoothed) weight per emotion, in EMOTION_NAMES order.
@@ -96,7 +94,6 @@ export function MoodVisualizer({ getWeights, active = false }: MoodVisualizerPro
   return (
     <section className="mood-visualizer" ref={containerRef} aria-label="Live mood mix visualizer">
       <canvas ref={canvasRef} aria-hidden="true" />
-      {!active && <p className="visualizer-hint">Your mood mix will bloom here once a stream is live.</p>}
     </section>
   );
 }

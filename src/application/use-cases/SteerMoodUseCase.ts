@@ -27,7 +27,10 @@ export class SteerMoodUseCase {
       throw new DomainError(`Session "${dto.sessionId}" not found.`);
     }
 
-    const mood = this.moodInterpreter.interpret(dto.moodInput, dto.intensity ?? session.mood.intensity);
+    const mood = this.moodInterpreter.interpret(
+      dto.moodInput,
+      dto.intensity ?? session.mood?.intensity ?? 0.6,
+    );
     session.steerTo(mood);
 
     // Optionally clear buffered audio so the new mood is heard sooner.

@@ -60,8 +60,10 @@ story):
 npm run dev
 ```
 
-Open the printed URL, choose a mood, and click **Generate**.
-(Audio requires a user gesture to start — the AudioContext resumes on click.)
+Open the printed URL, shape the emoji blend with the sliders, and click
+**Generate** — the opening sound is exactly the blend you set, and you steer it
+live with the same sliders as it plays. (Audio requires a user gesture to
+start — the AudioContext resumes on click.)
 
 ---
 

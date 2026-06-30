@@ -17,7 +17,7 @@ const EASE_TICK_MS = 120;
  * long after a start so the opening isn't the wobbly warm-up period and the
  * user's first slider move lands on an already-stable stream.
  */
-const SETTLE_MS = 10_000;
+const SETTLE_MS = 6_000;
 
 /** Per-emotion live weight: the slider `target` and its last eased `current`. */
 export interface LiveWeight {
@@ -46,6 +46,21 @@ export function useMusicMood() {
     error: null,
     settling: false,
   });
+
+  // Live weights live in a ref so the high-frequency tick never re-renders.
+  // The emoji board reports slider positions via setEmotionMix (recorded as
+  // `target`s); the easing loop eases each `current` toward its `target`.
+  const mixRef = useRef<LiveWeight[]>(
+    EMOTION_NAMES.map((name) => ({ name, target: 0, current: 0 })),
+  );
+  // The loop only pushes while there's easing left to do; a slider move re-arms
+  // it, and a settled tick disarms it — so a resting mix isn't re-sent forever.
+  const easingRef = useRef(false);
+  // True once a stream is live. While false (before play / after stop) the
+  // sliders mirror straight into `current` so the visualizer previews the blend
+  // you're dialing; while true the easing loop owns `current` so live steering
+  // morphs gradually instead of snapping.
+  const liveRef = useRef(false);
 
   // While a fresh stream stabilizes we gate the controls. The ref drives the
   // high-frequency easing loop (no re-render); the state flag drives the UI.
@@ -94,29 +109,26 @@ export function useMusicMood() {
     [clearSettling],
   );
 
-  const start = useCallback(
-    async (mood: string, intensity: number) => {
-      setState((s) => ({ ...s, busy: true, error: null }));
-      const result = await controller.start(mood, intensity);
-      if (result.ok) {
-        // A fresh stream is live but raw — hold the controls while it settles.
-        setState({ session: result.data, busy: false, error: null, settling: true });
-        beginSettling();
-      } else {
-        setState((s) => ({ ...s, busy: false, error: result.error }));
-      }
-    },
-    [controller, beginSettling],
-  );
-
-  const steer = useCallback(
-    (mood: string, intensity: number) => {
-      const id = state.session?.id;
-      if (!id) return apply(() => ({ ok: false, error: 'No active session.' }));
-      return apply(() => controller.steer(id, mood, intensity));
-    },
-    [apply, controller, state.session?.id],
-  );
+  /**
+   * Start a stream seeded directly from the current emoji-mix slider positions.
+   * The opening sound IS that blend, so we sync each live `current` up to its
+   * `target` (no 0→target ramp after settle) and idle the easing loop until the
+   * user actually moves a slider.
+   */
+  const start = useCallback(async () => {
+    setState((s) => ({ ...s, busy: true, error: null }));
+    const mix = mixRef.current.map((m) => ({ ...m }));
+    const result = await controller.startFromMix(mix);
+    if (result.ok) {
+      for (const slot of mixRef.current) slot.current = slot.target;
+      liveRef.current = true;
+      easingRef.current = false;
+      setState({ session: result.data, busy: false, error: null, settling: true });
+      beginSettling();
+    } else {
+      setState((s) => ({ ...s, busy: false, error: result.error }));
+    }
+  }, [controller, beginSettling]);
 
   const pause = useCallback(() => {
     const id = state.session?.id;
@@ -134,27 +146,25 @@ export function useMusicMood() {
     const id = state.session?.id;
     if (!id) return;
     clearSettling();
+    liveRef.current = false;
     return apply(() => controller.stop(id));
   }, [apply, controller, state.session?.id, clearSettling]);
 
-  // Emoji-mix easing render loop. The board reports slider positions via
-  // setEmotionMix; we only record them as `target`s here. A ~120ms tick eases
-  // each `current` toward its `target` and pushes the full prompt set, so moves
-  // morph gradually. Only meaningful once a stream is live.
+  // Emoji-mix easing loop. The board reports slider positions via setEmotionMix;
+  // we only record them as `target`s here. A ~120ms tick eases each `current`
+  // toward its `target` and pushes the full prompt set, so moves morph
+  // gradually. Only meaningful once a stream is live.
   const hasSession = Boolean(state.session);
-
-  // Live weights live in a ref so the high-frequency tick never re-renders.
-  const mixRef = useRef<LiveWeight[]>(
-    EMOTION_NAMES.map((name) => ({ name, target: 0, current: 0 })),
-  );
-  // The loop only pushes while there's easing left to do; a slider move re-arms
-  // it, and a settled tick disarms it — so a resting mix isn't re-sent forever.
-  const easingRef = useRef(false);
 
   const setEmotionMix = useCallback((emotions: readonly WeightedEmotion[]) => {
     for (const e of emotions) {
       const slot = mixRef.current.find((m) => m.name === e.name);
-      if (slot) slot.target = e.target;
+      if (slot) {
+        slot.target = e.target;
+        // Pre-playback: mirror straight to `current` so the visualizer previews
+        // the blend. During playback the easing loop owns `current`.
+        if (!liveRef.current) slot.current = e.target;
+      }
     }
     easingRef.current = true;
   }, []);
@@ -195,5 +205,5 @@ export function useMusicMood() {
     return () => clearInterval(id);
   }, [hasSession, controller]);
 
-  return { ...state, start, steer, play, pause, stop, setEmotionMix, getLiveMix };
+  return { ...state, start, play, pause, stop, setEmotionMix, getLiveMix };
 }

@@ -10,6 +10,15 @@ export interface AdvanceEmotionMixInputDto {
   smoothing?: number;
 }
 
+/**
+ * Input DTO: start a fresh session seeded directly from the emoji-mix slider
+ * positions. The opening blend IS the mix, so there's no separate "mood" to
+ * specify — the same sliders then steer the live stream.
+ */
+export interface StartFromMixInputDto {
+  weights: Array<{ name: string; target: number; current: number }>;
+}
+
 /** Output DTO: the result of one easing tick. */
 export interface EmotionMixResultDto {
   /** The weighted prompts actually sent to the model this tick (zero dropped). */
