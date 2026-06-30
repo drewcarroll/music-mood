@@ -1,6 +1,7 @@
 import React from 'react';
 import { useMusicMood } from '@interfaces/hooks/useMusicMood';
 import { EmojiMoodBoard } from '@interfaces/components/EmojiMoodBoard';
+import { MoodVisualizer } from '@interfaces/components/MoodVisualizer';
 import { MoodControls } from '@interfaces/components/MoodControls';
 import { SessionPanel } from '@interfaces/components/SessionPanel';
 import '@interfaces/styles/app.css';
@@ -10,7 +11,7 @@ import '@interfaces/styles/app.css';
  * all behavior flows through the controller via the useMusicMood hook.
  */
 export function App(): React.JSX.Element {
-  const { session, busy, error, settling, start, steer, play, pause, stop, setEmotionMix } =
+  const { session, busy, error, settling, start, steer, play, pause, stop, setEmotionMix, getLiveMix } =
     useMusicMood();
 
   return (
@@ -21,6 +22,8 @@ export function App(): React.JSX.Element {
       </header>
 
       {error && <div className="error" role="alert">{error}</div>}
+
+      <MoodVisualizer getWeights={getLiveMix} active={Boolean(session)} />
 
       <EmojiMoodBoard disabled={!session || settling} settling={settling} onChange={setEmotionMix} />
 

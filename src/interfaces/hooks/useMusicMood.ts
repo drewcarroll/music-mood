@@ -20,7 +20,7 @@ const EASE_TICK_MS = 120;
 const SETTLE_MS = 10_000;
 
 /** Per-emotion live weight: the slider `target` and its last eased `current`. */
-interface LiveWeight {
+export interface LiveWeight {
   name: string;
   target: number;
   current: number;
@@ -159,6 +159,14 @@ export function useMusicMood() {
     easingRef.current = true;
   }, []);
 
+  // Stable accessor onto the live eased mix. The visualizer polls this each
+  // animation frame, reading the `current` (eased) weights straight from the ref
+  // so the morph is reflected without driving React re-renders at 60fps.
+  const getLiveMix = useCallback(
+    (): LiveWeight[] => mixRef.current.map((m) => ({ ...m })),
+    [],
+  );
+
   useEffect(() => {
     if (!hasSession) return;
     let inFlight = false;
@@ -187,5 +195,5 @@ export function useMusicMood() {
     return () => clearInterval(id);
   }, [hasSession, controller]);
 
-  return { ...state, start, steer, play, pause, stop, setEmotionMix };
+  return { ...state, start, steer, play, pause, stop, setEmotionMix, getLiveMix };
 }

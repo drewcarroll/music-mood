@@ -39,12 +39,41 @@ body {
 
 .mood-controls,
 .session-panel,
-.emoji-board {
+.emoji-board,
+.mood-visualizer {
   background: var(--panel);
   border: 1px solid rgba(255, 255, 255, 0.06);
   border-radius: 16px;
   padding: 1.25rem;
   margin-bottom: 1.25rem;
+}
+
+/* Live mood-mix visualizer: a canvas stage that blooms with the current blend. */
+.mood-visualizer {
+  position: relative;
+  height: 240px;
+  padding: 0;
+  overflow: hidden;
+}
+
+.mood-visualizer canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.visualizer-hint {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0;
+  padding: 0 1.5rem;
+  text-align: center;
+  color: var(--muted);
+  font-size: 0.9rem;
+  pointer-events: none;
 }
 
 /* Five-emoji steering board: one slider per emotion, auto-fitting columns. */
