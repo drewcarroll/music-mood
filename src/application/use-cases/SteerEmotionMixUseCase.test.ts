@@ -73,23 +73,25 @@ describe('SteerEmotionMixUseCase (one easing tick)', () => {
     expect(result.settled).toBe(true);
   });
 
-  it('morphs only density/brightness — never bpm/scale/guidance — so context is not reset', async () => {
+  it('sends the blended tempo/key/texture — bpm, scale, density, brightness (never guidance)', async () => {
     const { port, configs } = fakeGenerator();
     const useCase = new SteerEmotionMixUseCase(port);
 
     const result = await useCase.execute({
       weights: [
-        { name: 'happy', target: 1, current: 1 },
-        { name: 'sad', target: 0.5, current: 0.5 },
+        { name: 'happy', target: 1, current: 1 }, // bpm 118, scale G_MAJOR_E_MINOR, dominant
+        { name: 'sad', target: 0.5, current: 0.5 }, // bpm 64
       ],
       smoothing: 0.15,
     });
 
     expect(port.setGenerationConfig).toHaveBeenCalledTimes(1);
-    expect(Object.keys(configs[0]).sort()).toEqual(['brightness', 'density']);
-    expect(configs[0].bpm).toBeUndefined();
-    expect(configs[0].scale).toBeUndefined();
+    expect(Object.keys(configs[0]).sort()).toEqual(['bpm', 'brightness', 'density', 'scale']);
+    // guidance is never steered — it stays pinned at connect.
     expect(configs[0].guidance).toBeUndefined();
+    // bpm = round((118*1 + 64*0.5) / 1.5) = round(100) = 100; key from dominant (happy).
+    expect(configs[0].bpm).toBe(100);
+    expect(configs[0].scale).toBe('G_MAJOR_E_MINOR');
     expect(result.morph?.density).toBeCloseTo(0.4667, 4);
     expect(result.morph?.brightness).toBeCloseTo(0.55, 4);
   });

@@ -1,5 +1,6 @@
 import type { MusicGenerationConfig } from '@application/ports/MusicGenerationPort';
 import { DEFAULT_RECONNECTION, type ReconnectionOptions } from '../genai/reconnectionSchedule';
+import { DEFAULT_FAILOVER, type FailoverOptions } from '../genai/ResilientMusicGenerator';
 
 /**
  * Centralized environment access. Per the layer rules, env vars are read
@@ -34,6 +35,8 @@ export interface AppConfig {
    * Clamped by the generator so the handoff always finishes before the cap.
    */
   reconnection: ReconnectionOptions;
+  /** Failover policy for the local fallback synth (stall tolerance). */
+  failover: FailoverOptions;
 }
 
 function num(value: string | undefined, fallback: number): number {
@@ -99,6 +102,14 @@ export function loadConfig(): AppConfig {
       crossfadeMs: num(
         env.VITE_RECONNECT_CROSSFADE_MS as string | undefined,
         DEFAULT_RECONNECTION.crossfadeMs,
+      ),
+    },
+    // No audio from the stream for this long (while playing) ⇒ hand off to the
+    // local synth. Lower it to watch the fallback engage during a demo.
+    failover: {
+      stallTimeoutMs: num(
+        env.VITE_FALLBACK_STALL_MS as string | undefined,
+        DEFAULT_FAILOVER.stallTimeoutMs,
       ),
     },
   };

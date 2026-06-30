@@ -48,12 +48,22 @@ export interface EmotionMorph {
  * to steer the generative music model, plus the texture (density/brightness)
  * it lends to the secondary morph controls. The keyword sets are fixed, curated
  * vocabulary — kept verbatim so prompts stay reproducible.
+ *
+ * `bpm` and `scale` describe the emotion's TEMPO and KEY. The streaming engine
+ * pins these for the whole performance (changing them mid-stream forces a
+ * reset_context() seam), but the LOCAL fallback synth — which has no such
+ * constraint — blends them so its tempo and key track the mood. Keeping them on
+ * the descriptor means both engines steer from one emoji-to-parameter mapping.
  */
 export interface EmotionDescriptor {
   readonly name: EmotionName;
   readonly emoji: string;
   readonly keywords: readonly string[];
   readonly morph: EmotionMorph;
+  /** Tempo this emotion pulls toward, in BPM. Blended (by weight) across the mix. */
+  readonly bpm: number;
+  /** Key/scale this emotion suggests (SDK Scale enum name). The dominant emotion sets it. */
+  readonly scale: string;
 }
 
 /**
@@ -91,6 +101,8 @@ export const EMOTION_DESCRIPTORS: Record<EmotionName, EmotionDescriptor> = {
     keywords: ['joyful', 'bright', 'major key', 'warm acoustic guitar', 'upbeat pop'],
     // Bright and moderately busy.
     morph: { density: 0.55, brightness: 0.7 },
+    bpm: 118,
+    scale: 'G_MAJOR_E_MINOR',
   },
   sad: {
     name: 'sad',
@@ -98,6 +110,8 @@ export const EMOTION_DESCRIPTORS: Record<EmotionName, EmotionDescriptor> = {
     keywords: ['melancholy', 'mournful', 'minor key', 'tender solo piano', 'slow and sparse'],
     // Sparse and dim — the texture of grief.
     morph: { density: 0.3, brightness: 0.25 },
+    bpm: 64,
+    scale: 'D_MAJOR_B_MINOR',
   },
   angry: {
     name: 'angry',
@@ -105,6 +119,8 @@ export const EMOTION_DESCRIPTORS: Record<EmotionName, EmotionDescriptor> = {
     keywords: ['aggressive', 'heavy distorted guitars', 'pounding drums', 'dark', 'menacing'],
     // Dense and dark.
     morph: { density: 0.85, brightness: 0.4 },
+    bpm: 142,
+    scale: 'E_FLAT_MAJOR_C_MINOR',
   },
   calm: {
     name: 'calm',
@@ -112,6 +128,8 @@ export const EMOTION_DESCRIPTORS: Record<EmotionName, EmotionDescriptor> = {
     keywords: ['serene', 'peaceful', 'ambient', 'soft warm synth pads', 'spacious'],
     // Very sparse, neutral brightness — restful space.
     morph: { density: 0.2, brightness: 0.5 },
+    bpm: 76,
+    scale: 'F_MAJOR_D_MINOR',
   },
   hype: {
     name: 'hype',
@@ -119,6 +137,8 @@ export const EMOTION_DESCRIPTORS: Record<EmotionName, EmotionDescriptor> = {
     keywords: ['euphoric', 'driving electronic beat', 'punchy bass', 'fast tempo', 'festival energy'],
     // Maximally busy and bright.
     morph: { density: 0.9, brightness: 0.85 },
+    bpm: 152,
+    scale: 'A_MAJOR_G_FLAT_MINOR',
   },
 };
 
@@ -175,6 +195,14 @@ export class WeightedEmotion {
 
   get morph(): EmotionMorph {
     return this.descriptor.morph;
+  }
+
+  get bpm(): number {
+    return this.descriptor.bpm;
+  }
+
+  get scale(): string {
+    return this.descriptor.scale;
   }
 
   /** Returns a new WeightedEmotion steered toward a new target weight. */

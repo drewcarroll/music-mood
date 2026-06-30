@@ -75,3 +75,44 @@ describe('EmotionMixer.toMorph', () => {
     expect(mixer.toMorph(createEmotionSet(0))).toBeNull();
   });
 });
+
+describe('EmotionMixer.toSynthParams', () => {
+  it('returns a soloed emotion’s own tempo, key and texture', () => {
+    const params = mixer.toSynthParams([WeightedEmotion.create('hype', 1, 1)]);
+    expect(params).toEqual({
+      ...EMOTION_DESCRIPTORS.hype.morph,
+      bpm: EMOTION_DESCRIPTORS.hype.bpm,
+      scale: EMOTION_DESCRIPTORS.hype.scale,
+    });
+  });
+
+  it('weight-blends the tempo across active emotions (rounded to whole bpm)', () => {
+    // happy bpm 118 @ 1.0 + sad bpm 64 @ 0.5 → (118 + 32) / 1.5 = 100
+    const params = mixer.toSynthParams([
+      WeightedEmotion.create('happy', 1, 1),
+      WeightedEmotion.create('sad', 0.5, 0.5),
+    ]);
+    expect(params?.bpm).toBe(100);
+  });
+
+  it('takes the key from the dominant (highest-weight) emotion, since a key can’t be averaged', () => {
+    const params = mixer.toSynthParams([
+      WeightedEmotion.create('happy', 0.4, 0.4),
+      WeightedEmotion.create('angry', 1.2, 1.2), // dominant
+    ]);
+    expect(params?.scale).toBe(EMOTION_DESCRIPTORS.angry.scale);
+  });
+
+  it('ignores emotions at/near zero, matching the prompt threshold', () => {
+    const params = mixer.toSynthParams([
+      WeightedEmotion.create('calm', 1, 1),
+      WeightedEmotion.create('hype', MIN_AUDIBLE_WEIGHT, MIN_AUDIBLE_WEIGHT), // dropped
+    ]);
+    expect(params?.bpm).toBe(EMOTION_DESCRIPTORS.calm.bpm);
+    expect(params?.scale).toBe(EMOTION_DESCRIPTORS.calm.scale);
+  });
+
+  it('returns null when nothing is audible', () => {
+    expect(mixer.toSynthParams(createEmotionSet(0))).toBeNull();
+  });
+});

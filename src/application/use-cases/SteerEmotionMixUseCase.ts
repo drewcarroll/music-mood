@@ -14,8 +14,15 @@ import { AdvanceEmotionMixInputDto, EmotionMixResultDto } from '../dtos/EmotionM
  *
  * Steering morphs along two axes that move together every tick:
  *  - prompt weights (primary) — harmonic / instrumental content;
- *  - density + brightness (secondary) — texture, via setGenerationConfig with
- *    ONLY those two fields, so bpm/scale stay pinned (no reset_context() seam).
+ *  - the blended synth params (secondary) — tempo, key and the density/
+ *    brightness texture, via setGenerationConfig.
+ *
+ * The config carries bpm + scale alongside density + brightness so the local
+ * fallback synth can track the mood's tempo and key. The streaming engine pins
+ * bpm/scale for the whole performance (changing them mid-stream forces a
+ * reset_context() seam) and so deliberately ignores those two on a live update,
+ * applying only density/brightness — that pinning is enforced in the Lyria
+ * adapter, not by withholding the fields here.
  *
  * The use case is stateless: the loop owns the live weights and feeds the eased
  * result back in next tick. `settled` lets the loop stop ticking once every
@@ -34,7 +41,7 @@ export class SteerEmotionMixUseCase {
     );
 
     const prompts = this.mixer.toPrompts(eased);
-    const morph = this.mixer.toMorph(eased);
+    const synth = this.mixer.toSynthParams(eased);
 
     // Never send an empty array — the model needs at least one prompt. When every
     // slider sits at/near zero we leave the current blend (and texture) playing
@@ -43,17 +50,21 @@ export class SteerEmotionMixUseCase {
       await this.generator.setPrompts(prompts);
     }
 
-    // Secondary morph: nudge only density/brightness so bpm/scale stay fixed.
-    if (morph) {
+    // Secondary morph: the full blended tempo/key/texture. The streaming engine
+    // applies only density/brightness from this and pins bpm/scale; the local
+    // fallback synth follows all four.
+    if (synth) {
       await this.generator.setGenerationConfig({
-        density: morph.density,
-        brightness: morph.brightness,
+        bpm: synth.bpm,
+        scale: synth.scale,
+        density: synth.density,
+        brightness: synth.brightness,
       });
     }
 
     return {
       prompts: prompts.map((p) => ({ text: p.text, weight: p.weight })),
-      morph: morph ?? undefined,
+      morph: synth ? { density: synth.density, brightness: synth.brightness } : undefined,
       weights: eased.map((e) => ({ name: e.name, target: e.target, current: e.current })),
       settled: eased.every((e) => e.settled),
     };

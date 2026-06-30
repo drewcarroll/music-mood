@@ -8,10 +8,12 @@ import { loadConfig } from '../config/env';
 import { CryptoIdGenerator } from '../id/CryptoIdGenerator';
 import { InMemoryMusicSessionRepository } from '../persistence/InMemoryMusicSessionRepository';
 import { LyriaRealtimeMusicGenerator } from '../genai/LyriaRealtimeMusicGenerator';
+import { ResilientMusicGenerator } from '../genai/ResilientMusicGenerator';
 import type { GeminiAuthProvider } from '../genai/auth/GeminiAuthProvider';
 import { DirectKeyAuthProvider } from '../genai/auth/DirectKeyAuthProvider';
 import { EphemeralTokenAuthProvider } from '../genai/auth/EphemeralTokenAuthProvider';
 import { WebAudioToneOutput } from '../audio/WebAudioToneOutput';
+import { LocalToneMusicGenerator } from '../audio/LocalToneMusicGenerator';
 
 /**
  * Composition Root.
@@ -35,7 +37,7 @@ export function createContainer(): AppUseCases {
       ? new EphemeralTokenAuthProvider(config.authTokenEndpoint)
       : new DirectKeyAuthProvider(config.geminiApiKey);
 
-  const generator = new LyriaRealtimeMusicGenerator(
+  const primaryGenerator = new LyriaRealtimeMusicGenerator(
     authProvider,
     config.lyriaModel,
     {
@@ -43,6 +45,17 @@ export function createContainer(): AppUseCases {
       generationConfig: config.generationConfig,
     },
     config.reconnection,
+  );
+
+  // Reliability: if the Lyria WebSocket errors or stalls, a local Tone.js synth
+  // takes over so the demo degrades to a working instrument rather than silence.
+  // Both implement MusicGenerationPort; the resilient wrapper owns the failover
+  // policy and the application stays unaware which engine is producing sound.
+  const generator = new ResilientMusicGenerator(
+    primaryGenerator,
+    new LocalToneMusicGenerator(),
+    config.generationConfig,
+    config.failover,
   );
   // Crossfade duration is shared so the audio blend matches the generator's
   // handoff window (it keeps the old stream's buffer playing through the fade).

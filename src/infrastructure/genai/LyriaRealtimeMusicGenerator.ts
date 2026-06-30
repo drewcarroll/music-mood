@@ -199,15 +199,25 @@ export class LyriaRealtimeMusicGenerator implements MusicGenerationPort {
 
   async setGenerationConfig(config: MusicGenerationConfig): Promise<void> {
     this.ensureLive();
-    // Merge into the remembered config (steers send only density/brightness) so
-    // the full config can be replayed onto a replacement session.
-    this.lastConfig = { ...this.lastConfig, ...config };
-    const musicGenerationConfig = this.toSdkConfig(config);
+    // A LIVE update morphs only density/brightness. bpm, scale and guidance are
+    // PINNED for the whole performance: changing bpm/scale mid-stream forces the
+    // model to reset_context() (an audible seam), and guidance is a connect-time
+    // character control. The emotion-mix steerer sends a blended bpm/scale too
+    // (the local fallback synth follows them), so we drop those here rather than
+    // relying on the caller to withhold them — and we never let them mutate
+    // lastConfig, so a replacement session keeps the performance's pinned key/tempo.
+    const live: MusicGenerationConfig = {};
+    if (config.density !== undefined) live.density = config.density;
+    if (config.brightness !== undefined) live.brightness = config.brightness;
+    if (Object.keys(live).length === 0) return;
+
+    this.lastConfig = { ...this.lastConfig, ...live };
+    const musicGenerationConfig = this.toSdkConfig(live);
     try {
       await Promise.all(
         this.sessions.map((h) => h.session.setMusicGenerationConfig({ musicGenerationConfig })),
       );
-      console.info('[Lyria] generation config applied:', config);
+      console.info('[Lyria] live morph applied:', live);
     } catch (err) {
       throw this.toDomainError(err);
     }

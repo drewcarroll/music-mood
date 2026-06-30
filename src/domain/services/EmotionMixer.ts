@@ -2,6 +2,20 @@ import { MusicPrompt } from '../value-objects/MusicPrompt';
 import { WeightedEmotion, EmotionMorph } from '../value-objects/EmotionDescriptor';
 
 /**
+ * The full set of musical parameters the emoji mix blends into: the secondary
+ * morph (density/brightness) plus the TEMPO and KEY of the blend. The streaming
+ * engine pins bpm/scale for the whole performance and consumes only the morph;
+ * the local fallback synth — free of the reset_context() constraint — follows
+ * all four so its tempo and key track the mood. Same mapping, two consumers.
+ */
+export interface SynthParams extends EmotionMorph {
+  /** Blended tempo in BPM (weighted average across the active emotions). */
+  readonly bpm: number;
+  /** Key/scale (SDK Scale enum name) taken from the dominant active emotion. */
+  readonly scale: string;
+}
+
+/**
  * Minimum weight an emotion must carry to be sent to the model. Lyria rejects a
  * weight of exactly 0, and weights at/near zero are inaudible anyway, so any
  * emotion at or below this threshold is dropped from the prompt set entirely
@@ -52,5 +66,27 @@ export class EmotionMixer {
     const density = active.reduce((s, e) => s + e.morph.density * e.current, 0) / totalWeight;
     const brightness = active.reduce((s, e) => s + e.morph.brightness * e.current, 0) / totalWeight;
     return { density, brightness };
+  }
+
+  /**
+   * Blend the active emotions into the FULL parameter set — the density/
+   * brightness morph plus a blended tempo and a key. Tempo is a weighted average
+   * of the per-emotion bpms; the key is the dominant (highest-weight) emotion's
+   * scale, because a key can't be meaningfully averaged — you pick one.
+   *
+   * Returns `null` when nothing is audible (same threshold as the prompts and
+   * the morph), so the caller leaves the live parameters untouched rather than
+   * snapping to a default.
+   */
+  toSynthParams(emotions: readonly WeightedEmotion[]): SynthParams | null {
+    const morph = this.toMorph(emotions);
+    if (!morph) return null;
+
+    const active = emotions.filter((emotion) => emotion.current > MIN_AUDIBLE_WEIGHT);
+    const totalWeight = active.reduce((sum, emotion) => sum + emotion.current, 0);
+    const bpm = active.reduce((s, e) => s + e.bpm * e.current, 0) / totalWeight;
+    const dominant = active.reduce((a, b) => (b.current > a.current ? b : a));
+
+    return { ...morph, bpm: Math.round(bpm), scale: dominant.scale };
   }
 }
