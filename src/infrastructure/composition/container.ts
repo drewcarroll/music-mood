@@ -8,6 +8,9 @@ import { loadConfig } from '../config/env';
 import { CryptoIdGenerator } from '../id/CryptoIdGenerator';
 import { InMemoryMusicSessionRepository } from '../persistence/InMemoryMusicSessionRepository';
 import { LyriaRealtimeMusicGenerator } from '../genai/LyriaRealtimeMusicGenerator';
+import type { GeminiAuthProvider } from '../genai/auth/GeminiAuthProvider';
+import { DirectKeyAuthProvider } from '../genai/auth/DirectKeyAuthProvider';
+import { EphemeralTokenAuthProvider } from '../genai/auth/EphemeralTokenAuthProvider';
 import { WebAudioToneOutput } from '../audio/WebAudioToneOutput';
 
 /**
@@ -24,7 +27,15 @@ export function createContainer(): AppUseCases {
   // Shared singletons for the lifetime of the SPA.
   const repository = new InMemoryMusicSessionRepository();
   const idGenerator = new CryptoIdGenerator();
-  const generator = new LyriaRealtimeMusicGenerator(config.geminiApiKey, config.lyriaModel, {
+
+  // Pick the auth strategy: a raw client key for local dev, or backend-minted
+  // ephemeral tokens so the real key never ships to the browser.
+  const authProvider: GeminiAuthProvider =
+    config.authMode === 'ephemeral'
+      ? new EphemeralTokenAuthProvider(config.authTokenEndpoint)
+      : new DirectKeyAuthProvider(config.geminiApiKey);
+
+  const generator = new LyriaRealtimeMusicGenerator(authProvider, config.lyriaModel, {
     initialPrompt: config.initialPrompt,
     generationConfig: config.generationConfig,
   });

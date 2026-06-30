@@ -13,6 +13,7 @@ import {
   MusicGenerationConfig,
 } from '@application/ports/MusicGenerationPort';
 import { parsePcmMimeType, CANONICAL_PCM_FORMAT, type PcmFormat } from '../audio/pcm';
+import type { GeminiAuthProvider } from './auth/GeminiAuthProvider';
 
 /**
  * Configuration seeded onto a freshly-opened session so the stream begins
@@ -40,26 +41,34 @@ export class LyriaRealtimeMusicGenerator implements MusicGenerationPort {
   /** Log every Nth audio chunk so we confirm flow without spamming the console. */
   private static readonly LOG_EVERY = 25;
 
-  private readonly client: GoogleGenAI;
+  private client: GoogleGenAI | null = null;
   private session: LiveMusicSession | null = null;
   private chunkCount = 0;
   private formatConfirmed = false;
 
+  /**
+   * @param authProvider Resolves the credential handed to the SDK — either the
+   *   raw API key (local dev) or a freshly minted ephemeral token (semi-public).
+   *   The credential is resolved per-connect rather than at construction so
+   *   single-use, short-lived ephemeral tokens are always fresh.
+   */
   constructor(
-    apiKey: string,
+    private readonly authProvider: GeminiAuthProvider,
     private readonly model: string = 'models/lyria-realtime-exp',
     private readonly defaults?: LyriaSessionDefaults,
-  ) {
-    if (!apiKey) {
-      throw new DomainError('A Gemini API key is required to start the music generator.');
-    }
-    // Lyria RealTime is only exposed on the v1alpha surface.
-    this.client = new GoogleGenAI({ apiKey, httpOptions: { apiVersion: 'v1alpha' } });
-  }
+  ) {}
 
   async connect(callbacks: MusicGenerationCallbacks): Promise<void> {
     this.chunkCount = 0;
     try {
+      // Resolve a fresh credential and (re)build the client. Lyria RealTime is
+      // only exposed on the v1alpha surface.
+      const credential = await this.authProvider.getCredential();
+      this.client = new GoogleGenAI({
+        apiKey: credential,
+        httpOptions: { apiVersion: 'v1alpha' },
+      });
+
       this.session = await this.client.live.music.connect({
         model: this.model,
         callbacks: {

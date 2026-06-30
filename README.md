@@ -37,12 +37,22 @@ smoothly transitions toward the new prompts.
 npm install
 ```
 
-### 3. Configure your API key
+### 3. Configure auth
 
 ```bash
 cp .env.example .env
-# then edit .env and set VITE_GEMINI_API_KEY
 ```
+
+There are two auth modes (see [Authentication](#authentication) for the full
+story):
+
+- **Local dev (`direct`)** — set `VITE_GEMINI_API_KEY` in `.env`. The key is
+  used straight from the browser. Simplest, but the key ships to the client, so
+  use this **only** for local work.
+- **Semi-public (`ephemeral`)** — set the **server-only** `GEMINI_API_KEY` (no
+  `VITE_` prefix) and `VITE_AUTH_MODE=ephemeral`. The browser fetches a
+  short-lived, single-use ephemeral token from a backend; the real key never
+  leaves the server.
 
 ### 4. Run the dev server
 
@@ -52,6 +62,46 @@ npm run dev
 
 Open the printed URL, choose a mood, and click **Generate**.
 (Audio requires a user gesture to start — the AudioContext resumes on click.)
+
+---
+
+## Authentication
+
+A client-side key is fine for a quick local demo, but for anything semi-public
+the real key must never reach the browser. Music Mood supports both, selected by
+`VITE_AUTH_MODE` (inferred when unset: a `VITE_GEMINI_API_KEY` present ⇒
+`direct`; absent ⇒ `ephemeral`).
+
+### `direct` — local dev only
+
+`DirectKeyAuthProvider` hands the SDK the raw `VITE_GEMINI_API_KEY`. Vite inlines
+that value into the client bundle, so **the key is exposed to anyone who can
+load the page**. Acceptable for `localhost`, not for a shared URL.
+
+### `ephemeral` — semi-public
+
+The recommended path uses **Gemini ephemeral auth tokens**
+([`authTokens.create`](https://ai.google.dev/gemini-api/docs/ephemeral-tokens)):
+
+```
+browser ──POST /api/auth-token──►  backend (holds GEMINI_API_KEY)
+        ◄──── { token, ... } ─────  authTokens.create → short-lived token
+browser ──Live WebSocket with token──►  Lyria RealTime
+```
+
+- The real `GEMINI_API_KEY` is read **only** server-side (no `VITE_` prefix, so
+  Vite never bundles it). It is never sent to the browser.
+- `EphemeralTokenAuthProvider` fetches a fresh token on every `connect()` —
+  tokens are single-use and short-lived (30-minute default expiry, 2-minute
+  window to open a session), and are locked to the Lyria model.
+- During `npm run dev` / `npm run preview`, the token endpoint is served by a
+  small Vite plugin (`server/viteAuthTokenPlugin.ts`) — no separate process
+  needed. For a real deployment, host `server/authTokenHandler.ts` as a
+  serverless function (or behind Express); the SPA only needs the
+  `VITE_AUTH_TOKEN_ENDPOINT` (default `/api/auth-token`) to exist.
+
+The token-minting code lives in `server/` (Node-only) and is **never** imported
+by the client, so it can never end up in the browser bundle.
 
 ### Available scripts
 
@@ -106,7 +156,11 @@ infrastructure ─┘
 #### `src/infrastructure/` — the outside world (all I/O)
 - `genai/LyriaRealtimeMusicGenerator` — implements `MusicGenerationPort` with
   the `@google/genai` SDK (Lyria RealTime). SDK errors are re-thrown as
-  `DomainError`.
+  `DomainError`. It resolves its credential through a `GeminiAuthProvider` at
+  connect time rather than holding a static key.
+- `genai/auth/` — the auth strategies: `DirectKeyAuthProvider` (raw key, local
+  dev) and `EphemeralTokenAuthProvider` (backend-minted ephemeral token,
+  semi-public). The composition root picks one based on `AppConfig.authMode`.
 - `audio/WebAudioToneOutput` — implements `AudioOutputPort` using the Web Audio
   API, the AudioWorklet, and Tone.js.
 - `persistence/InMemoryMusicSessionRepository` — implements

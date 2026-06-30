@@ -5,8 +5,21 @@ import type { MusicGenerationConfig } from '@application/ports/MusicGenerationPo
  * ONLY in infrastructure. Vite exposes variables prefixed with VITE_ via
  * import.meta.env.
  */
+/**
+ * How the browser authenticates to Gemini / Lyria RealTime.
+ *  - `direct`    — uses the raw `VITE_GEMINI_API_KEY` in the browser. LOCAL DEV ONLY.
+ *  - `ephemeral` — fetches a short-lived ephemeral token from a backend, so the
+ *    real key never ships to the browser. Use this for anything semi-public.
+ */
+export type AuthMode = 'direct' | 'ephemeral';
+
 export interface AppConfig {
+  /** Selected auth strategy. */
+  authMode: AuthMode;
+  /** Raw API key — only populated/used in `direct` mode. */
   geminiApiKey: string;
+  /** Backend endpoint that mints ephemeral tokens — used in `ephemeral` mode. */
+  authTokenEndpoint: string;
   lyriaModel: string;
   /**
    * The hardcoded weighted prompt used to seed a freshly-opened session so the
@@ -25,17 +38,31 @@ function num(value: string | undefined, fallback: number): number {
 export function loadConfig(): AppConfig {
   const env = import.meta.env;
   const geminiApiKey = (env.VITE_GEMINI_API_KEY as string | undefined) ?? '';
-  const lyriaModel =
-    (env.VITE_LYRIA_MODEL as string | undefined) ?? 'models/lyria-realtime-exp';
+  const lyriaModel = (env.VITE_LYRIA_MODEL as string | undefined) ?? 'models/lyria-realtime-exp';
+  const authTokenEndpoint =
+    (env.VITE_AUTH_TOKEN_ENDPOINT as string | undefined) ?? '/api/auth-token';
 
-  if (!geminiApiKey) {
+  // Explicit mode wins; otherwise infer: a client key present → direct (dev),
+  // none present → ephemeral (the secure, semi-public default).
+  const explicitMode = env.VITE_AUTH_MODE as AuthMode | undefined;
+  const authMode: AuthMode =
+    explicitMode === 'direct' || explicitMode === 'ephemeral'
+      ? explicitMode
+      : geminiApiKey
+        ? 'direct'
+        : 'ephemeral';
+
+  if (authMode === 'direct' && !geminiApiKey) {
     console.warn(
-      '[config] VITE_GEMINI_API_KEY is not set. Copy .env.example to .env and add your key.',
+      '[config] direct auth mode but VITE_GEMINI_API_KEY is not set. Copy .env.example ' +
+        'to .env and add your key, or set VITE_AUTH_MODE=ephemeral for semi-public use.',
     );
   }
 
   return {
+    authMode,
     geminiApiKey,
+    authTokenEndpoint,
     lyriaModel,
     initialPrompt: {
       text: (env.VITE_LYRIA_INITIAL_PROMPT as string | undefined) ?? 'lush ambient soundscape',
